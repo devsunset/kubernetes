@@ -8,6 +8,7 @@
 ### Kubernetes 
 
 https://kubernetes.io/
+https://kubernetes.io/ko/
 
 https://www.docker.com/
 https://docs.docker.com/
@@ -73,6 +74,47 @@ https://github.com/alicek106/start-docker-kubernetes
      * 클라우드 플랫폼에 종송적인 기능도 사용 가능 (로드 밸런서, 퍼시스턴 볼륨 등의 기능)
      * 클라우드 사용 비용 및 의존성 증가
      * 쿠버네티스 자체 학습 하기에는 적합 하지 않음
+
+# 쿠버네티스 버젼 선택 
+
+* Docker Desktop for Mac / Windows 
+  쿠버네티스 별도로 설치 하지 않아도 됨 
+  설정 메뉴에서 쿠버네티스를 활성화 해주기만 하면 됨
+
+  kubectl version --short 
+
+* Minikube
+  로컬에서 가상 머신이나 도커 엔진을 통해 쿠버네티스를 사용할 수 있는 환경 제공 
+
+  1) virtualbox 설치
+  apt-get install virtualbox
+  
+  2) minikube, kubectl 내려 받기 
+    https://minikube.sigs.k8s.io/docs/start/
+
+    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+    sudo install minikube-linux-amd64 /usr/local/bin/minikube
+
+    curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+    chmod +x ./kubectl
+    sudo mv ./kubectl /usr/local/bin/kubectl
+
+  3) minikube 가상 머신 설치 
+    minikube start
+    특정 버젼의 쿠버네티스를 설치하려면 --kubernetes-version옵션을 추가
+    minikube start --kubernetes-version v1.23.5
+
+        리눅스 서버에서 가상 머신 없이 도커 엔진만으로 minikube설치
+        - 도커엔진이 설치된 리눅스에서는 가상 머신 생성하지 않고 Minikube를 이용해 쿠버네티스 설치 할수 있음
+          minikube , kubectl 내려 받은 다음 아래 명령어 실행
+          minikube start --vm-driver=none
+
+    minikube 삭제 하려면  minikube delete 명령어 사용 
+
+* 여러 서버로 구성된 쿠버네티스 클러스터 설치 
+
+
+
 
     
 
