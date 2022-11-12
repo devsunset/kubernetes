@@ -3,31 +3,24 @@
 			# KUBERNETES-WORK #
 
 -------------------------------------------------
-# Kubernetes
 
+########################################################
+### Kubernetes 
 
 https://kubernetes.io/
 
 https://www.docker.com/
-
 https://docs.docker.com/
-
 https://hub.docker.com/
 
-
 ########################################################
-# Reference
-
+### Reference
 
 (시작하세요. 도커/쿠버네티스 book)
 https://github.com/alicek106/start-docker-kubernetes
 
 ########################################################
-# Kubernetes Install
-
-
-########################################################
-# Kubernetes  Guide
+### Kubernetes  Guide
 (시작하세요. 도커/쿠버네티스 book 요약 정리) 
 
 * 쿠버네티스 - 그리스어로 조타수라는 뜻
@@ -35,7 +28,7 @@ https://github.com/alicek106/start-docker-kubernetes
 사실상 표준으로 사용되고 있는 컨테이너 오케스트레이션 도구 
 - 도커 스윔 모드 처럼 여러 대의 도커 호스트를 하나의 클러스터로 만들어 준다는 점은 같지만 세부적인 기능을 더욱 폭넓게 제공
 
-장점
+# 장점
 - 서버 자원 클러스터링 , 마이크로 서비스 구조의 컨테이너 배포, 서비스 장애 복구등 컨테이너 기반의 서비스 운영에 필요한 대부분의
   오케스트레이션 기능을 폭넓게 지원
 - 구글,레드햇 등 많은 오픈소스 진영에서 기역 하고 있기 때문에 성능과 안정성 면에서 신뢰 
@@ -43,11 +36,11 @@ https://github.com/alicek106/start-docker-kubernetes
   기능 과 컴포넌트를 사용자가 커스터 마이징 가능
 - CNCF(Cloud Native Computing Foundation) 및 다른 클라우드 운영 도구들과 쉽게 연동 됨으로 확장성 우수 
 
-단점
+# 단점
 - 휠씬 다양한 지식이 필요 
 - 쿠버네티스 자체 관리가 어려울 수도 있음 (소규모 조직에서는 오히려 오버 엔지니어링)
 
-종류
+# 종류
 - 개발 용도의 쿠버네티스 Minikube (Dockr Desktop for Mac/Windows에 내장된 서비스)
    로컬 노드를 standalone 모드로 사용하기 때문에 쿠버네티스의 기능을 완벽하게 사용해 보기에는 적합하지 않음   
 - 서비스 테스트 또는 운영 용도의 쿠버 네티스 kops , kubespray, kubeadm , EKS, GKE 등의 Managed 서비스 
