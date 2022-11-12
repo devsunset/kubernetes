@@ -77,13 +77,13 @@ https://github.com/alicek106/start-docker-kubernetes
 
 # 쿠버네티스 버젼 선택 
 
-* Docker Desktop for Mac / Windows 
+# Docker Desktop for Mac / Windows 
   쿠버네티스 별도로 설치 하지 않아도 됨 
   설정 메뉴에서 쿠버네티스를 활성화 해주기만 하면 됨
 
   kubectl version --short 
 
-* Minikube
+# Minikube
   로컬에서 가상 머신이나 도커 엔진을 통해 쿠버네티스를 사용할 수 있는 환경 제공 
 
   1) virtualbox 설치
@@ -111,7 +111,103 @@ https://github.com/alicek106/start-docker-kubernetes
 
     minikube 삭제 하려면  minikube delete 명령어 사용 
 
-* 여러 서버로 구성된 쿠버네티스 클러스터 설치 
+# 여러 서버로 구성된 쿠버네티스 클러스터 설치 
+   kubeadm, kops, GKE
+   최소한 3대이상 환경 구성 
+   - 모든 서버 시간 nlp를 통해 동기화
+   - MAC 주소가 각기 다른지 체크
+   - 2G Memory , 2 CPU 이상의 충분한 자원
+   - swapoff -a 명령어를 통해 메모리 swap을 비 활성화 쿠버네티스 설치 도구는 메모리 스왑을 허용 하지 않음
+
+   마스터 1대  , 워커 노드 3대 구성 
+
+   # kubeadm으로 쿠버네티스 설치 
+    쿠버네티스를 쉽게 설치 할 수 있는 관리 도구 
+    온프레미스 환경 , 클라우드 인프라 환경 상관 없이 일반적인 리눅스 서버라면 모두 사용 가능 
+    
+    서버 예시 
+    kube-master1 172.31.0.100
+    kube-worker1 172.31.0.101
+    kube-worker2 172.31.0.102
+    kube-worker3 172.31.0.103
+
+    1) 쿠버네티스 저장소 추가 
+    모든 노드에서 아래 명령어로 저장소 추가 
+    curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+    cat <<EOF > /etc/apt/source.list.d/kuberenets.list
+    deb http://apt.kubernetes.io/ kubernetes-xenial main
+    EOF 
+
+    2) containerd 및 kubeadm 설치
+      도커를 설치하면 도커에 포함된 containerd가 함께 설치 됨으로 도커에 포함된 containerd를 쿠버네티스와 연동해 사용 
+
+      모든 노드에서 도커를 설치
+      wget -q0- get.docker.co | sh 
+
+      도커를 통해 설치된 containerd의 설정 파일은 기본적으로 컨테이너 런타임 인터페이스가 비활성 상태 
+      containerd기본 설정값으로 덮어 씌운 뒤 재시작 
+      containerd config default > /etc/containerd/config.toml
+      service containerd restart
+
+      container (runC)   container (runC)   container (runC)
+                                  containerd  <------- kubernetes 
+                                  Dockr Engine (docker demon)
+
+    도커 없이 containerd만 설치해도 문제 없이 쿠버네티스를 사용할 수 있음 
+    (docker 대신 crictl이라는 명령어를 통해 컨테이너를 제어)
+    crictl --runtime-endpoint unix:///run/containerd/containerd.sock ps 
+    쿠버네티스는 kubectl을 사용 할수 있음으로 crictl을 사용 하는 경우는 많지 않음 
+
+    모든 노드에서 쿠버네티스에 필요한 패키지 설치
+    apt-get install -y kubelet kubeadm kubectl kuberenetes-cni 
+   
+   3) 쿠버네티스 클러스터 초기화 
+   마스터 노드로 사용할 호스트에서 다음 명령어로 클러스터 초기화 
+   kubeadm init --apiserver-advertise-address 172.31.0.100 \
+   --pod-network-cidr=192.168.0/16 --cri-socket /run/containerd/containerd.sock 
+
+   --apiserver-advertise-address  : 다른 노드가 마스터에 접근할 IP 
+   --pod-network-cidr : 쿠버네티스가 사용할 네트워크 대역 
+   --cri-socket /run/containerd/containerd.sock  : containerd 런타임 인터페이스를 통해 컨테이너를 사용하도록 설정
+
+  쿠버네티스 1.23까지는 도커 엔진 자체를 컨테이너 런타임 인터페이스로 사용 할 수 있었음
+  도커엔진은 컨테이너 런타임 인터페이스를 구현하지 않았으므로 dockershim이라고 불리는 중간 단계를 거쳐야 했음 
+  1.24 버전 부터는 도커 엔진을 사용 할수 없게 변경 될 예정 반드시 containerd, cri-o등을 사용 해야 함 
+
+  초기화 처리 되면 출력되는 내용중 중간의 3줄을 복사해 마스터 노드에서 실행
+  ...
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kuberenetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config 
+  ....
+
+  kubeadm join 172.31.0.100:6443 --token ......
+
+  맨 마지막에 출력된 kubeadm join ... 은 마스터를 제외한 노드인 워커 노드들에서 실행 
+  실행시 --cri-socket /run/containerd/containerd.sock 옵션을 명령어 마지막에 추가 
+ ex) 
+  kubeadm join 172.31.0.100:6443 --token ...... --cri-socket /run/containerd/containerd.sock 
+
+  4) 컨테이너 네트워크 애드온 설치 
+  쿠버네티스의 컨테이너 간 통신을 위해 flannel, weaveNet등 여러 오버레이 네트워크를 사용 할 수 있지만 
+  예제 에서는 calico를 기준으로 설명
+  마스터 노드에서 calico 네트워크 플러그인을 설치 
+  kubectl apply -f https://docs.projectcalico.org/v3.22/maifests/calico.yaml
+
+  설치 확인 - STATUS 항목 값이 전부  Running으로 나와야 함
+  kubectl get pods --namespace kube-system 
+  kubectl get nodes 
+
+kubeadm으로 설치된 쿠버네티스는 각 노드에서 아래 명령어로 삭제 처리 가능 (설치중 오류 발생하거나 테스트용 클러스터 삭제 시 유용)
+kubeadm reset 
+
+이전에 설치했던 쿠버네티스 파일들이 /etc/kubernetes 디렉토리에 남아 있는 경우 kubeadm reset명령어로 
+초기화 해도 설치시 실패 할수 있음 kubeadm reset 명령어 사용한 뒤 설치시 에러가 발생하면 /etc/kubernetes 삭제 후 재 시도 
+
+# kops로 AWS에서 쿠버네티스 설치 
+
+
+
 
 
 
