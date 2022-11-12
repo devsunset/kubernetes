@@ -24,6 +24,8 @@ https://github.com/alicek106/start-docker-kubernetes
 ### Kubernetes  Guide
 (시작하세요. 도커/쿠버네티스 book 요약 정리) 
 
+########################################################
+## 소개 
 * 쿠버네티스 - 그리스어로 조타수라는 뜻
 
 사실상 표준으로 사용되고 있는 컨테이너 오케스트레이션 도구 
@@ -74,6 +76,9 @@ https://github.com/alicek106/start-docker-kubernetes
      * 클라우드 플랫폼에 종송적인 기능도 사용 가능 (로드 밸런서, 퍼시스턴 볼륨 등의 기능)
      * 클라우드 사용 비용 및 의존성 증가
      * 쿠버네티스 자체 학습 하기에는 적합 하지 않음
+
+########################################################
+## 설치 
 
 # 쿠버네티스 버젼 선택 
 
@@ -205,9 +210,71 @@ kubeadm reset
 초기화 해도 설치시 실패 할수 있음 kubeadm reset 명령어 사용한 뒤 설치시 에러가 발생하면 /etc/kubernetes 삭제 후 재 시도 
 
 # kops로 AWS에서 쿠버네티스 설치 
+kops는 클라우드 플랫폼에서 쉽게 쿠버네티스를 설치할 수 있도록 도와 주는 도구 
+kubeadm은 서버 인프라를 직접 마련해야 하지만 kops는 서버 인스턴스와 네트워크 리소스 등을 클라우드에서 자동으로 생성해 설치 
+kops는 AWS, GCP 등의 클라우드 플랫폼에서 설치를 지원 
+
+1) kops 및 kubectl 실행 바이너리 내려 받기 
+wget -O kops https://github.com/kubernetes/kops/releases/download/v1.23.1/kops-linux-amd64
+chmod +x ./kops
+sudo mv ./kops /usr/local/bin/ 
+
+curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x ./kubectl
+sudo mv ./kubectl /usr/local/bin/kubectl
+
+2) AWS 사용자 생성 , 정책 연결 및 AWS CLI 설정 
+  네트워크 리소스등 자동으로 생성하기 위해 aws CLI와 AWS 접근 정보 사용 
+ ( AWS 문서 참조 )
+
+3) S3 버킷에 쿠버네티스 클러스터의 설정 정보 저장 
+kops는 쿠버네티스의 설정 정보를 S3 버킷에 저장 
+사용할 S3 버킷을 미리 생성해 두어야 함 
+
+aws s3api create-bucket \
+--bucket devsunset-k8s-bucket \
+--create-bucket-configuration LocationConstraint=ap-northeast-2
+
+aws s3api put-bucket-versioning \
+--bucket devsunset-k8s-bucket \
+--versioning-configuration Status=Enabled 
+
+쿠버네티스의 클러스터 이름과 S3 버킷 이름을 환경 변수로서 설정
+ export NAME=mycluster.k8s.local
+ export KOPS_STATE_STORE=s3://devsunset-k8s-bucket
+
+ 쿠버네티스를 설치할 EC2 인스턴스에 배포될 SSH 키를 생성
+ ssh-keygen -t rsa -N "" -f ./id_rsa
+
+ 클러스터 설정 파일 생성 
+ kops create cluster \
+ --zones ap-northeast-2a \
+ --networking calico \
+ --ssh-public-key ./id_rsa.pub \
+ $NAME 
+
+ 4) 쿠버네티스 클러스터 옵션 변경
+ 마스터 워커 노드의 인스턴수 타입이나 개수 등 조정 
+ kops edit -ig ==name $NAME nodes-ap-northeast-2a 
+
+ 5) 쿠버네티스 클러스터 생성
+ 아래 명령어 입력 하면 자동으로 쿠버네티스가 설치 됨 
+ kops update cluster --yes $NAME 
+
+ 쿠버 네티스에 접근 할 수 있는 설정 파일 가져오기 
+ kops export kubeconfig --admin 
+
+ 쿠버네티스 설치 진행 상황 확인 
+ kops validate cluster 
+
+ kubectl get node 
+
+ 쿠버네시트 삭제 
+ kops delete cluster $NAME --yes 
 
 
-
+# 구글 클라우드 플랫폼의 GKE로 쿠버네티스 사용하기 
+클라우드에서 서비스로 제공하는 GKE , EKS 등  ()
 
 
 
