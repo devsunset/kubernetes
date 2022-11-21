@@ -316,6 +316,43 @@ Check kubeconfig
 ########################################################
 ##  Kubernetes 시작하기 
 
+* 모든 리소스는 오브젝트 형태로 관리 됨 
+  컨테이너 집합 (Pods)
+  컨테이너 집합을 관리 하는 컴트롤러(Replica Set)
+  Service
+  Deployment
+  ...
+
+오브젝트 조회 명령어 
+kubectl api-resources
+
+오브젝트 설명
+kubectl explain 오브젝트 
+
+* 쿠버네티스는 명령어로도 사용 할 수 있지만 YAML 파일을 더 많이 사용 
+
+* 쿠버네티스는 여러 개의 컴포넌트로 구성 
+  마스터노드 
+    API  서버 (kube-apiserver)
+    컨트롤러 매니저 (kube-controller-manager)
+    스케쥴러(kube-scheduler)
+    DNS서버(coreDNS)
+    프락시(kube-proxy)
+    네트워크 플러그인(calico, flannel)
+crictl --runtime-endpoint unix:///run/containered/containerd.sock ps 
+쿠버네티스 클러스터 구성을 위해 kubelet 에이전트 모든 노드에서 실행 
+
+* 쿠버네티스에서 반드시 containerd를 사용해야 할 필요는 없으며 OCI(Open Container Initiative) 라는 컨테이너 런타임 표준을
+  구현한 컨테이너 런타임을 갖추고 있다면 사용 가능 
+
+
+
+
+
+
+
+
+
 
     
 
