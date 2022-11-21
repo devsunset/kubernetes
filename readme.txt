@@ -313,6 +313,11 @@ RUN example
 Check kubeconfig
 ~/vagrant-k8s/1.23> kubectl --kubeconfig=./.kube/config get nodes
 
+마스터 노드에서 아래 내용 실행
+$ mkdir -p $HOME/.kube
+$ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+$ sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
 ########################################################
 ##  Kubernetes 시작하기 
 
@@ -325,6 +330,13 @@ Check kubeconfig
 
 오브젝트 조회 명령어 
 kubectl api-resources
+
+The connection to the server localhost:8080 was refused - did you specify the right host or port
+원인: 마스터노드에서의 kubectl 관련 config가 설정이 되지 않았기 때문 (kubectl config view  출력 내용 확인)
+마스터 노드에서 아래 내용 실행
+$ mkdir -p $HOME/.kube
+$ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+$ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 오브젝트 설명
 kubectl explain 오브젝트 
@@ -346,9 +358,29 @@ crictl --runtime-endpoint unix:///run/containered/containerd.sock ps
   구현한 컨테이너 런타임을 갖추고 있다면 사용 가능 
 
 
+########################################################
+##  Kubernetes 리소스의 관리와 설정
 
+########################################################
+##  Ingress
 
+########################################################
+##  퍼시스턴트 볼륨(PV) 과 퍼시트턴트 볼륨 클레임 (PVC)
 
+########################################################
+##  보안을 위한 인증과 인가 : ServiceAccount와 RBAC
+
+########################################################
+##  어플리케이션 배포를 위한 고급 설정
+
+########################################################
+##  커스텀 리소스와 컨트롤러 
+
+########################################################
+##  파드를 사용하는 다른 오브젝트들
+
+########################################################
+##  쿠버네티스 모니터링 
 
 
 
