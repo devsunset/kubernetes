@@ -14,6 +14,9 @@ https://www.docker.com/
 https://docs.docker.com/
 https://hub.docker.com/
 
+https://docmoa.github.io/02-Private%20Platform/Kubernetes/02-Config/vagrant_k8s.html
+https://github.com/Great-Stone/vagrant-k8s
+
 ########################################################
 ### Reference
 
@@ -295,7 +298,14 @@ aws s3api put-bucket-versioning \
 # 구글 클라우드 플랫폼의 GKE로 쿠버네티스 사용하기 
 클라우드에서 서비스로 제공하는 GKE , EKS 등  ()
 
+########################################################
+##  Vagrant 기반으로 Kubernetes 클러스터  로컬 환경 구성 
 
+https://docmoa.github.io/02-Private%20Platform/Kubernetes/02-Config/vagrant_k8s.html
+https://github.com/Great-Stone/vagrant-k8s
+
+########################################################
+##  Kubernetes 시작하기 
 
 
     
