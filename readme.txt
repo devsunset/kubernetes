@@ -119,10 +119,29 @@ https://github.com/alicek106/start-docker-kubernetes
 # 여러 서버로 구성된 쿠버네티스 클러스터 설치 
    kubeadm, kops, GKE
    최소한 3대이상 환경 구성 
-   - 모든 서버 시간 nlp를 통해 동기화
+   - 모든 서버 시간 ntp를 통해 동기화
    - MAC 주소가 각기 다른지 체크
    - 2G Memory , 2 CPU 이상의 충분한 자원
    - swapoff -a 명령어를 통해 메모리 swap을 비 활성화 쿠버네티스 설치 도구는 메모리 스왑을 허용 하지 않음
+
+   * ntp 설정 
+   sudo apt-get install -y ntp 
+   sudo vi /etc/ntp.conf
+      pool 3.ubuntu.pool.ntp.org iburst 하단에 아래 내용 추가 
+      server 203.248.240.140 iburst 추가 
+      - 동기화 서버 리스트
+      time.bora.net (203.248.240.140)
+      time.nuri.net (211.115.194.21)
+      time2.kriss.re.kr (210.98.16.101)
+
+   ntp 서비스 실행
+    sudo systemctl start ntp (서비스 실행)
+    sudo systemctl status ntp (서비스 상태 확인)
+    ntpq -p (동기화 상태 확인)
+    date (시스템 날짜 확인)
+
+    sudo timedatectl set-timezone Asia/Seoul
+
 
    마스터 1대  , 워커 노드 3대 구성 
 
