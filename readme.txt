@@ -304,6 +304,15 @@ aws s3api put-bucket-versioning \
 https://docmoa.github.io/02-Private%20Platform/Kubernetes/02-Config/vagrant_k8s.html
 https://github.com/Great-Stone/vagrant-k8s
 
+git clone https://github.com/Great-Stone/vagrant-k8s.git
+cd vagrant-k8s/1.23
+
+RUN example
+~/vagrant-k8s/1.23> vagrant up
+
+Check kubeconfig
+~/vagrant-k8s/1.23> kubectl --kubeconfig=./.kube/config get nodes
+
 ########################################################
 ##  Kubernetes 시작하기 
 
