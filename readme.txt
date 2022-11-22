@@ -630,26 +630,141 @@ kubectl get endpoints # endpoints 대신 ep 사용해도 됨
 kubectl delete svc hostname-svc-clusterip
 kubectl delete -f hostname-svc-clusterip.yaml 
 
+# NodePort 타입의 서비스 - 서비스를 이용해 파드를 외부에 노출
+스윔모드에서 컨테이너를 외부로 노출하는 방식과 비슷
+모든 노드의 특정 포트를 개방해 서비스에 접근 하는 방식 
 
+* hostname-svc-nodeport.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostname-svc-nodeport
+spec:
+  ports:
+    - name: web-port
+      port: 8080
+      targetPort: 80
+  selector:
+    app: webserver
+  type: NodePort
 
+kubectl  apply -f hostname-svc-nodeport.yaml
+kubectl get services
 
+vagrant@master:~$ kubectl get services
+NAME                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+hostname-svc-nodeport   NodePort    10.98.198.11   <none>        8080:31143/TCP   53s
+kubernetes              ClusterIP   10.96.0.1      <none>        443/TCP          25h
 
+31143 모든 노드에서 동일하게 접근할 수 있는 포트를 의미 
+kubectl get nodes -o wide
+GKE에서 쿠버네티스 사용하는 경우 각 노드의 랜덤한 포트에 접근하기 위해 별도로 방화벽 설정을 추가 해야 함 
+AWS에서도 Security Group에 별도의 Inbound 규칙을 추가하지 않으면 접속 안됨 
+gcloud compute firewall-rules create temp-nodeport-svc --allow=tcp:31143 # 규칙추가
+gcloud compute firewall-rules delete temp-nodeport-svc #규칙삭제 
 
+각 노드에서 개방되는 포트는 기본적으로 30000 ~32768 포트 중에 랜덤으로 설정됨 
+(API 서버 컴포넌트의 실행 옵션을 변경하면 포트 범위 설정 가능 --service-node-port-range=30000-35000)
+YAML 파일에서 nodePort 항목을 정의 하면 원하는 포트로 선택 가능
+spec:
+  ports:
+    - name: web-port
+      port: 8080
+      targetPort: 80
+      nodePort: 31000
 
+kubectl get nodes -o wide
+NodePort 타입의 서비스가 ClusterIP의 기능을 포함 하고 있기 때문에 내부 IP와 DNS 이름으로 접속도 가능 
 
+NodePort로 서비스를 외부에 제공하는 경우는 많지 않음
+- NodePort에서 포트 번호를 80 또는 443으로 설정하기에 적절하지 않음
+- SSL 인증서 적용 , 라우팅 등과 같은 복잡한 설정을 서비스에 적용하기 어려움 
+- NodePort서비스 그 자체를 통해 서비스를 외부에 제공하기 보다는 Ingress 부르는 쿠버네티스의 오브젝트를 간접적으로 사용하는 경우가 많음 
 
+특정 클라이언트가 같은 파드로부터만 처리되게 하려면 sessionAffinity: ClientIP로 설정 
+spec:
+ essionAffinity: ClientIP
 
+# LoadBalancer 타입의 서비스 - 클라우드 플랫폼의 로드 밴런서와 연동하기 
+서비스 생성과 동시에 로드 밸런서를 새롭게 생성해 파드와 연결 
+클라우드 플랫폼으로부터 도메인 이름과 IP를 할당 받기 때문에 NodePort보다 더욱 쉽게 파드에 접근 
+로드 밸런서를 동적으로 생성하는 기능을 제공하는 환경에서만 사용 가능 
+(MetalLB, 오픈스택의 LBassB등과 같은 온프레스미 환경에서도 LoadBalancer 타입의 서비스를 사용할 수 있는 방법이 있음)
 
+* hostname-svc-lb.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostname-svc-lb
+spec:
+  ports:
+    - name: web-port
+      port: 80
+      targetPort: 80
+  selector:
+    app: webserver
+  type: LoadBalancer
 
+쿠버네티스 1.18.0 버전을 기준으로 서비스의 YAML 파일에서 아무런 설정 하지 않으면 AWS의 클래식 로드 밸런서를 생성
 
+NLB(네트워크 로드 밸런서)를 생성하려면 아래와 같이 정의 하면 됨
+* hostname-svc-nlb.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostname-svc-nlb
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  ports:
+    - name: web-port
+      port: 80
+      targetPort: 80
+  selector:
+    app: webserver
+  type: LoadBalancer
 
+* 온프레스미 환경에서 LoadBalancer 타입의 서비스 사용하기 
+MetalLB, 오픈스택과 같은 특수한 환경을 직접 구축 
 
+* 트래픽의 분배를 결정하는 서비스 속성 : externalTrafficPolicy
+kubectl get  svc hostname-svc-nodeport -o yaml 
+externalTrafficPolicy: Cluster <- 기본 값 해당 값을 Local로 설정하면 
+파드가 생성된 노드에서만 파드로 접근할 수 있음 , 로컬 노드에 위치한 파드 중 하나로 요청이 전달 
 
-    
+* hostname-svc-lb-local.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostname-svc-lb-local
+spec:
+  externalTrafficPolicy: Local
+  ports:
+    - name: web-port
+      port: 80
+      targetPort: 80
+  selector:
+    app: webserver
+  type: LoadBalancer
 
+Cluster와 Local 둘다 장단점이 있음
+불필요한 네트워크 홉으로 인한 레이턴시나 클라이언트의 IP 보존이 중요하지 않다면 Cluster 사용 
+그 반대라면 Local을 사용 
 
+* 요청을 외부로 리다이렉트하는 서비스 : ExternalName 
+쿠버네티스를 외부 시스템과 연동해야 할 때는 ExternalName 타입의 서비스를 사용 
+서비스가 외부 도메인을 기리키도록 설정 할 수 있음 
 
+* external-svc.yaml (쿠버네티스를 레거시 시스템과 연동시 유용)
+apiVersion: v1
+kind: Service
+metadata:
+  name: externalname-svc
+spec:
+  type: ExternalName
+  externalName: my.database.com
 
+  서비스 접근시 외부 서비스로 리다이렉트 처리 해줌 
 
 ########################################################
 ##  Kubernetes 리소스의 관리와 설정
