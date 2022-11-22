@@ -532,6 +532,112 @@ kubectl describe deploy my-nginx-deployment
 * 리소스 정리 (모두 삭제 처리)
 kubectl delete deployment,pods,rs --all
 
+# 서비스(Service) : 파드를 연결하고 외부에 노출 
+YAML 파일에서 containerPort 항목을 정의했다고 해서 이 파드가 바로 외부로 노출되는 것은 아님
+외부로 노출해 사용자들이 접근하거나, 다른 디플로이먼트의 파드들이 내부적으로로 접근 하려면 서비스라고 부르는 별도의 쿠버네티스 오브젝트를 생성 해야 함 
+
+서비스 기능
+* 여러 갱의 파드에 쉽게 접근할 수 있도록 고유한 도메인 이름을 부여
+* 여러 개의 파드에 접근할 때, 요청을 분산하는 로드 밸런서 기능을 수행
+* 클라우드 플랫폼의 로드 밸런서, 클러스터 노드의 포트 등을 통해 파드를 외부로 노출 
+
+서비스의 종류
+* ClusterIP 타입 
+쿠버네티스 내부에서만 파드들에 접근할 때 사용 - 외부에서 파드에 접근할 수 없는 서비스 타입 
+* Node Port 타입 
+파드에 접근할 수 있는 포트를 클러스터의 모든 노드에 동일하게 개방 - 외부에서 파드에 접근할 수 있는 서비스 타입 
+접근할 수 있는 포트는 랜덤으로 정해지지만 특정 포트로 접근 하도록 설정할 수도 있음 
+* LoadBalancer 타입 
+클라우드 플랫폼에서 제공하는 로드 밴런서를 동적으로 프로지저닝해 파드에 연결 - 외부에서 파드에 접근 할 수 있는 서비스 타입 
+AWS, GCP 등과 같은 클라우드 플랫폼 환경에서만 사용 가능 
+
+
+웹에 접속하면 호스트명을 출력해주는 서비스 
+* deployment-hostname.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hostname-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: webserver
+  template:
+    metadata:
+      name: my-webserver
+      labels:
+        app: webserver
+    spec:
+      containers:
+      - name: my-webserver
+        image: alicek106/rr-test:echo-hostname
+        ports:
+        - containerPort: 80
+
+kubectl  apply -f deployment-hostname.yaml
+kubectl get pods
+kubectl get pods -o wide  (IP 값 출력 옵션)
+클러스터 노드 중 하나에 접속해 노드에서 curl을 통해 파드로 접근 
+
+* ClusterIP 타입의 서비스 - 쿠버네티스 내부에서만 파드에 접근하기 
+* hostname-svc-clusterip.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostname-svc-clusterip
+spec:
+  ports:
+    - name: web-port
+      port: 8080
+      targetPort: 80
+  selector:
+    app: webserver
+  type: ClusterIP
+
+* spec.selector : selector 항목은 이 서비스에서 어떠한 라벨을 가지는 파드에 접근할 수 있게 만들 것인지 결정
+위 예시에서는 app:webserver 라는 라벨을 가지는 파드들의 집합에 접근 할 수 있는 서비스를 생성 
+deployment-hostname.yaml 로 생성된 파드는 해당 라벨이 설정되어 있으므로 서비스에 접근 가능한 대상에 추가 됨
+
+* spec.ports.port : 생성된 서비스는 쿠버네티스 내부에서만 사용할 수 있는 공유한 IP(ClusterIP)를 할당 받음
+서비스의 IP에 접근할 때 사용할 포트를 설정 
+
+* spec.ports.targetPort : select 항목에서 정의한 라벨에 의해 접근 대상이 된 파드들이 내부적으로 사용하고 있는 포트를 입력 
+파드 템플릿에 정의된 containerPort와 같은 값으로 설정 
+
+* spec.type : 서비스가 어떤 타입인지 나타냄 (ClusterIP, NodePort, LoadBalancer)
+
+서비스 목록 
+kubectl get services # services 대신 svc 라고 사용 가능 
+
+vagrant@master:~$ kubectl get services
+NAME                     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+hostname-svc-clusterip   ClusterIP   10.99.231.150   <none>        8080/TCP   5m17s
+kubernetes               ClusterIP   10.96.0.1       <none>        443/TCP    23h
+
+클러스터 노드 중 아무곳에서나 접속하여 CLUSTER-IP 값으로 접속  요청 
+
+kubectl run 명령어로 임시 파드를 생성하여 접속 요청 
+kubectl run -i --tty --rm debug --image=alicek106/ubuntu:curl --restart=Never -- bash
+curl 10.99.231.150 --silent | grep Hello
+curl hostname-svc-clusterip:8080 --silent | grep Hello (IP 뿐만 아니라 NAME으로도 접근 - 내부 DNS을 구동하고 자동으로 이 DNS를 사용하도록 설정 됨)
+(여러번 호출해 보면 서비스와 연결된 여러개의 파드에 자동으로 요청이 분산됨 - 별도의 설정을 하지 않아도 서비스는 연결된 파드에 대해 로드밸런싱을 수행)
+
+서비스의 라벨 셀렉터와 파드의 라벨이 매칭돼 연결되면 자동으로 엔드포인트라고 부르는 오브젝트를 생성 
+kubectl get endpoints # endpoints 대신 ep 사용해도 됨 
+
+서비스 삭제 
+kubectl delete svc hostname-svc-clusterip
+kubectl delete -f hostname-svc-clusterip.yaml 
+
+
+
+
+
+
+
+
+
 
 
 
