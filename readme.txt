@@ -472,6 +472,67 @@ replicaset.apps/replicaset-nginx configured
 
 * kubectl delete rs replicaset-nginx 수행하면 레플리카셋에 의해 생성된 파드 또한 함께 삭제 됨 
 
+* 라벨 셀렉터 (Label Selector)
+  selector:
+    matchLabels:
+      app: my-nginx-pods-label
+
+* 이전 버젼의 쿠버네티스에서는 레플리카셋이 아닌 레플리케이션 컨트롤러 라는 오브젝트를 통해 파드의 개수를 유지 
+
+# 디플로이먼트(Deployment) : 레플리카셋, 파드의 배포를 관리 
+레플리카셋과 파드의 정보를 정의하는 디플로이먼트 라는 이름의 오브젝트를 YAML 파일에 정의해 사용 
+레플리카셋의 상위 오브젝트 디플로이먼트 생성하면 대응 하는 레플리카셋도 함께 생성
+
+* deployment-nginx.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-nginx-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-nginx
+  template:
+    metadata:
+      name: my-nginx-pod
+      labels:
+        app: my-nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.10
+        ports:
+        - containerPort: 80
+
+* kubectl apply -f deployment-nginx.yaml
+* kubectl get deployment
+* kubectl get replicasets
+* kubectl get pods
+* kubectl delete deploy my-nginx-deployment
+
+* 디플로이먼트를 사용하는 이유 
+애플리케이션을 업데이트 할 때 레플리카셋의 변경 사항을 저장하는 리비전을 남겨 롤백을 가능 하게 지원
+무중단 서비스를 위해 롤링 업데이트의 전략을 지정 가능 
+
+* kubectl apply -f deployment-nginx.yaml --record 
+디플로이먼트에서 생성된 파드의 이미지를 변경 한다고 가정
+kubectl set image 사용 하여 변경
+kubectl set image deployment my-nginx-deployment nginx=nginx:1.11 --record
+위의 명령어는 image 항목을 nginx:1.11로 변경 후 kubectl apply -f 명령어로 적용해도 동일하게 변경 
+kubectl get replicasets 명령어로 출력하면 2개의 리플리카셋이 출력 됨 
+변경하여 새롭게 생성하였으나 이전 레플리카셋은  파드수가 0인 상태로 유지 (리비전으로서 보존)
+아래 명령어로 자세히 확인 가능 
+kubectl roolout history deployment my-nginx-deployment
+이전 버젼으로 롤백 하려고 한다면 아래 명령어로 롤백 처리 
+kubectl rollout undo deployment my-nginx-deployment --to-revision=1 
+kubectl get replicates --show-labels
+kubectl describe deploy my-nginx-deployment
+
+* 리소스 정리 (모두 삭제 처리)
+kubectl delete deployment,pods,rs --all
+
+
 
 
 
