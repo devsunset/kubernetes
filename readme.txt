@@ -357,6 +357,132 @@ crictl --runtime-endpoint unix:///run/containered/containerd.sock ps
 * 쿠버네티스에서 반드시 containerd를 사용해야 할 필요는 없으며 OCI(Open Container Initiative) 라는 컨테이너 런타임 표준을
   구현한 컨테이너 런타임을 갖추고 있다면 사용 가능 
 
+#  파드(Pod) : 컨테이너를 다루는 기본 단위 
+   1개 이상의 컨테이너로 구성된 컨테이너 집합 
+   여러 개의 컨테이너를 추상화해 하나의 애플리케이션으로 동작 하게 만드는 컨테이너 묶음 
+
+* nginx-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-nginx-pod
+spec:
+  containers:
+  - name: my-nginx-container
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+      protocol: TCP
+
+    생성
+    kubectl apply -f nginx-pod.yaml 
+    pods 확인
+    kubectl get pods  
+    상세 내용 확인 
+    kubectl describe my-nginx-pod
+    curl ip값으로 nginx 설치 확인
+
+        클러스터 노드로 접속할 수 없는 상황이라면 
+        클러스터 내부에 테스트용 파드를 생성해 임시로 사용 가능
+        kubectl run -i --tty --rm debug --image=alicek106/ubuntu:curl --restart=Never bash 
+        exit로 테스트용 파드에서 빠져나오면 파드는 삭제됨 
+
+    pod 내부로 직접 접속
+    kubectl exec -it my-nginx-pod bash
+    로그 확인
+    kubectl logs my-nginx-pod
+    파드 삭제
+    kubectl delete -f nginx-pod.yaml or kubectl delete pod <파드명>
+
+  * 파드 vs. 도커 컨테이너 
+  쿠버네티스의 파드는 docker run으로 생성된 단일 nginx 컨테이너와 비슷
+  파드를 사용 하는 이유는 컨테이너 런타임의 인터페이스 제공 등 여러 가지 이유가 있지만 그 중에 하나는 여러 리눅스 네임스페이스를 공유하는
+  여러 컨테이너들을 추상화 된 집합으로 사용 하기 위함 
+
+* nginx-pod-with-ubuntu.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-nginx-pod
+spec:
+  containers:
+  - name: my-nginx-container
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+      protocol: TCP
+
+  - name: ubuntu-sidecar-container
+    image: alicek106/rr-test:curl
+    command: ["tail"]
+    args: ["-f", "/dev/null"] # 포드가 종료되지 않도록 유지합니다
+
+  nginx 파드에 2개의 컨테이너가 설치 됨
+  -c 옵션을 사용 하여 파드의 특정 컨테이너에 접근 가능 
+  kubectl exec -it my-nginx-pod -c ubuntu-sidecar-container bash 
+  curl localhost
+  우분투 서버에 nginx를 설치 하지 않았는데도 localhost로 접근이 가능 함
+  - 파드 내의 컨테이너들이 네트워크 네임스페이스 등과 같은 리눅스 네임스페이스를 공유해 사용하기 때문
+
+* 완전환 애플리케이션으로서의 파드 
+  '하나의 파드는 하나의 완전한 애플리케이션'
+  사이드카 컨테이너 - 파드에 정의된 부가적인 컨테이너 ex) nginx 컨테이너에 부가적으로 설정변경,로그 수집등의 프로세스가 nginx 컨테이너와 함께 수행 
+  파드 냉의 다른 컨테이너와 네트워크 환경을 공유 
+
+* 파드의 네트워크 네임스페이스는 pause라는 이름의 컨테이너로부터 네트워크를 공유 받아 사용
+   pause  파드별로 생성되는 컨테이너며 각 파드에 의해 자동으로 생성
+   ps aux | grep pause
+
+#  레플리카셋(Replica Set) : 일정 개수의 파드를 유지 하는 컨트롤러 
+   파드가 생성된 노드에 장애가 발생하더라도 파드는 다른 노드를 다시 생성하지 않으면 단지 종료된 상태로 유지 됨 
+   이런 문제점을 해결하기 위해 레플리카셋과 같이 사용됨 
+   
+   레플리카셋
+   * 정해진 수의 동일한 파드가 항상 실행되도록 관리 
+   * 노드 장애 등의 이유로 파드를 사용할 수 없다면 다른 노드에서 파드를 다시 생성 
+
+* replicaset-nginx.yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: replicaset-nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-nginx-pods-label
+  template:
+    metadata:
+      name: my-nginx-pod
+      labels:
+        app: my-nginx-pods-label
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+ 
+* kubectl api-resources 출력 내용 중 SHORTNAMES 항목으로 명령어를 줄여 사용 할 수 있음
+ex) kubectl get pods -> kubectl get po
+
+* replicas: 3 -> replicas: 4 로 변경 후  apply 재 실행 하면 pod가 1개 추가 생성 됨 
+kubectl apply -f replicaset-nginx.yaml
+replicaset.apps/replicaset-nginx configured
+
+* kubectl delete rs replicaset-nginx 수행하면 레플리카셋에 의해 생성된 파드 또한 함께 삭제 됨 
+
+
+
+
+
+
+
+    
+
+
+
+
 
 ########################################################
 ##  Kubernetes 리소스의 관리와 설정
