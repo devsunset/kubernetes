@@ -1134,7 +1134,226 @@ kubectl delete configmap --all
 kubectl delete secret --all
 
 ########################################################
-##  Ingress
+##  Ingress (*)
+
+외부 요청을 어떻게 처리할 것인지 네트워크 7계층 레벨에서 정의하는 쿠버네티스 오브젝트 
+* 외부 요청의 라우팅 : /apple , /apple/red 등과 같이 특정 경로로 들어온 요청을 어떠한 서비스에 전달할지 정의 하는 라우팅 규칙 
+* 가상 호스트 기반의 요청 처리 : 같은 IP에 대해 다른 도메인 이름으로 요청이 도착했을 때 어떻게 처리할 것인지 정의 
+* SSL/TLS 보안 연결 처리 : 여러개의 서비스로 요청을 라우팅할 때 보안 연결을 위한 인증서를 쉽게 적용 
+
+* 인그레스를 사용하는 이유
+인그레스 오브젝트를 사용하면 URL 엔드포인트를 단 하나만 생성함
+라우팅 정의나 보안 연결 등과 같은 세부 설정은 서비스와 디플로이먼트가 아닌 인그레스에 의해 수행 됨으로 설정이 간소화 
+
+* 인그레스의 구조 
+kubectel get ingress or ing
+* ingress-example-k8s-latest.yaml 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-example
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - host: alicek106.example.com                   # [1]
+    http:
+      paths:
+      - path: /echo-hostname                     # [2]
+        pathType: Prefix
+        backend:
+          service:
+            name: hostname-service               # [3]
+            port:
+              number: 80
+
+host : 해당 도메인 이름으로 접근하는 요청에 대해서 처리 규칙을 적용 
+path : 해당 경로에 들어온 요청을 어느 서비스로 전달할 것인지 정의  , 여러 개으이 path를 정의해 경로를 처리할 수 있음 
+name, port : path로 들어온 요청이 전달될 서비스와 포트 
+
+kubectl apply -f ingress-example-k8s-latest.yaml
+kubectl get ingress
+인그레스는 단지 요청을 처리하는 규칙을 정의하는 선언적인 오브젝트일 뿐, 외부 요청ㅇㄹ 받아들일 수 있는 실제 서버가 아님 
+인그레스 컨트롤러라고 하는 특수한 서버에 적용해야만 그 규칙을 사용 할 수 있음 
+실제로 외부 요청을 받아 들이는 것은 인그레스 컨트롤러 서버 이며 이 서버가 인그레스 규칙을 로드해 사용 
+인그레스는 반드시 인그레스 컨트롤러라는 서버와 함께 사용 
+
+* 인그레스 컨트롤러 
+Nginx 웹 서버 인그레스 컨트롤러 
+Kong API 게이트웨이 
+GKE 등의 클라우드 플랫폼에서 제공되는 인그레스 컨트롤러 
+
+* Nginx 웹 서버 인그레스 컨트롤러 와 관련된 리소스를 한번에 설치 (쿠버네티스에서 공식적으로 개발)
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.2.0/deploy/static/provider/cloud/deploy.yaml
+kubectl get pods,deployment -n ingress-nginx
+kubectl get svc -n ingress-nginx
+
+온프레미스에서의 운영 단계를 계획 하고 있다면 MetalLB나 오픈스택의 로드 밸런서를 사용 
+클라우드 아닌 환경에서 인그레스를 테스트하고 싶다면 LoadBalancer 대신 NodePort 타입의 서비스를 생성해 사용 
+각 노드의 랜덤한 포트로 Nginx 인그레스 컨트롤러에 접근 
+* ingress-nginx-svc-nodeport.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: ingress-nginx
+  name: ingress-nginx-controller-nodeport
+  namespace: ingress-nginx
+spec:
+  ports:
+  - name: http
+    nodePort: 31000
+    port: 80
+    protocol: TCP
+    targetPort: http
+  - name: https
+    nodePort: 32000
+    port: 443
+    protocol: TCP
+    targetPort: https
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+  type: NodePort
+
+* hostname-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hostname-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: webserver
+  template:
+    metadata:
+      name: my-webserver
+      labels:
+        app: webserver
+    spec:
+      containers:
+      - name: my-webserver
+        image: alicek106/ingress-annotation-test:0.0
+        ports:
+        - containerPort: 5000
+          name: flask-port
+
+  kubectl apply -f hostname-deployment.yaml 
+
+* hostname-service.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostname-service
+spec:
+  ports:
+    - name: web-port
+      port: 80
+      targetPort: flask-port
+  selector:
+    app: webserver
+  type: ClusterIP
+
+인그레스 컨트롤러에 의해 요청이 최종적으로 도착할 디플로이먼트의 서비스는 어떤 타입이든지 상관 없음
+외부에 서비스를 노출할 필요가 없다면 ClusterIP 타입을 사용 하는 것이 좋음 
+  kubectl apply -f hostname-service.yaml 
+
+  kubectl get pods,services
+
+AWS 
+curl a20...2.elb.amazonaws.com/echo-hostname 
+
+Nginx에 접근하기 위한 LoadBalancer타입의 서비스를 생성했을 때 GKE에서 부하 분산기의 IP만 할당 받았다면 
+curl 명령어의 --resolve옵션을 통해 임시로 도메인명을 설정 할 수 있음
+curl --resolve alicek106.example.com:80:<부하 분산 IP> alicek106.example.com/echo-hostname
+ 
+온프레스미 환경이나 GKE와 같이 IP만 할당받아 상요하고 있다면 /etc/hosts 파일에 IP와 도메인을 설정해 임시로 동작여부 테스트 
+
+NodePort  타입으로 서비스를 생성했다면 다음과 같은 명령어로 테스트 
+curl --resolve alicek106.example.com:31000:<노드 중 하나의 IP를 입력> alicek106.example.com:31000/echo-hostname
+
+AWS에서 임의의 DNS를 LoadBalancer타입의 서비스에 할당받았다면 이미 생성된 인그레스 리소스의 정보에서 host 항목을 직접 로드 밸런서의 DNS로 수정
+kubectl edit ingress ingress-example
+spec:
+  rules:
+   - host: a206556....ap.-northeast-2.elb.amazonwas.com
+
+# 인그레스 컨트롤러의 동작 원리 
+1.공식 깃허브에서 제공되는 YAML 파일로 Nginx 인그레스 컨트롤러 생성
+2.Nginx 인그레스 컨트롤러를 외부로 노출하기 위한 서비스를 생성
+3.요청 처리 규칙을 정의하는 인그레스 오브젝트를 생성
+4.Nginx 인그레스 컨트롤러로 들어온 요청은 인그레스 규칙에 따라 적절한 서비스로 전달 
+
+쿠버네티스  API에는 특정 오브젝트의 상태가 변화하는 것을 확인할 수 잇는 Watch API 존재 
+Watch는 리소스에 생성,삭제,수정 등의 이벤트가 발생했을때 이를 알려주는 기능 
+kubectl get 명령어에서도 -w 옵션을 붙여 사용 가능 
+kubectl get pods -w 
+
+요청이 실제로 hostname-service 라는 서비스로 전달 되는 것은 아님
+Nginx 인그레스 컨트롤러는 서비스에 의해 생성된 엔드포인트로 요청을 직접 전달 ( 이러한 동작을 쿠버네티스에서는 bypass라 함)
+
+# 인그레스의 세부 기능 : annotation을 이용한 설정 
+인그레스는 YAML 파일의 주석 항목을 정의함으로써 다양한 옵션을 사용할 수 있음 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-example
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "nginx"
+
+nginx.ingress.kubernetes.io/rewrite-target  Nginx 인그레스 컨트롤러에서만 사용 할 수 있는 기능 - 인그레스에 정의된 경로로 들어오는 요청을 rewrite-target에 설정된 경로로 전달 
+kubernetes.io/ingress.class는 해당 인그레스 규칙을 어떤 인그레스 컨트롤러에 적용할 것인지를 의미 
+
+# Nginx 인그레스 컨트롤러에 SSL/TLS 보안 연결 적용 
+인그레스 컨틀로러 지점에서 인증서를 적용해 두면 요청이 전달되는 애플리케이션에 대해 모두 인증서 처리를  할 수 있음 
+
+보안키 생성
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=alicek106.example.com/0=alicek106"
+/CN에는 Nginx 인그레스 컨트롤러에 접근하기 위한 Public DNS 이름을 입력 
+
+시크릿 생성
+kubectl create secret tls tls-secret --key tls.key --cert tls.crt 
+
+* ingress-tls-k8s-latest.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-example
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  tls:
+  - hosts:
+    - alicek106.example.com            # 여러분의 도메인 이름을 입력해야 합니다.
+    secretName: tls-secret
+  rules:
+  - host: alicek106.example.com          # 여러분의 도메인 이름을 입력해야 합니다.
+    http:
+      paths:
+      - path: /echo-hostname
+        pathType: Prefix
+        backend:
+          service:
+            name: hostname-service
+            port:
+              number: 80
+
+#  여러 개의 인그레스 컨트롤러 사용하기 
+kubernetes.io/ingress.class annotation에 Nginx, Kong, GKE등 여러 개의 인그레스 컨트롤러 중 어는 것을 사용할 것인지 명시 
+
+아래 처럼 변경해서 설정도 가능
+1. wget https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.2.0/deploy/static/provider/cloud/deploy.yaml
+2. vi deploy.xml 
+--ingress-class=alicek106-nginx  로 수정
+3.kubernetes.io/ingress.class: "alicek106-nginx"
 
 ########################################################
 ##  퍼시스턴트 볼륨(PV) 과 퍼시트턴트 볼륨 클레임 (PVC)
@@ -1153,7 +1372,6 @@ kubectl delete secret --all
 
 ########################################################
 ##  쿠버네티스 모니터링 
-
 
 ########################################################
 ##  유용한 강좌
