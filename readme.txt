@@ -357,7 +357,7 @@ crictl --runtime-endpoint unix:///run/containered/containerd.sock ps
 * 쿠버네티스에서 반드시 containerd를 사용해야 할 필요는 없으며 OCI(Open Container Initiative) 라는 컨테이너 런타임 표준을
   구현한 컨테이너 런타임을 갖추고 있다면 사용 가능 
 
-#  파드(Pod) : 컨테이너를 다루는 기본 단위 
+#  pod(Pod) : 컨테이너를 다루는 기본 단위 
    1개 이상의 컨테이너로 구성된 컨테이너 집합 
    여러 개의 컨테이너를 추상화해 하나의 애플리케이션으로 동작 하게 만드는 컨테이너 묶음 
 
@@ -383,20 +383,20 @@ spec:
     curl ip값으로 nginx 설치 확인
 
         클러스터 노드로 접속할 수 없는 상황이라면 
-        클러스터 내부에 테스트용 파드를 생성해 임시로 사용 가능
+        클러스터 내부에 테스트용 pod를 생성해 임시로 사용 가능
         kubectl run -i --tty --rm debug --image=alicek106/ubuntu:curl --restart=Never bash 
-        exit로 테스트용 파드에서 빠져나오면 파드는 삭제됨 
+        exit로 테스트용 pod에서 빠져나오면 pod는 삭제됨 
 
     pod 내부로 직접 접속
     kubectl exec -it my-nginx-pod bash
     로그 확인
     kubectl logs my-nginx-pod
-    파드 삭제
-    kubectl delete -f nginx-pod.yaml or kubectl delete pod <파드명>
+    pod 삭제
+    kubectl delete -f nginx-pod.yaml or kubectl delete pod <pod명>
 
-  * 파드 vs. 도커 컨테이너 
-  쿠버네티스의 파드는 docker run으로 생성된 단일 nginx 컨테이너와 비슷
-  파드를 사용 하는 이유는 컨테이너 런타임의 인터페이스 제공 등 여러 가지 이유가 있지만 그 중에 하나는 여러 리눅스 네임스페이스를 공유하는
+  * pod vs. 도커 컨테이너 
+  쿠버네티스의 pod는 docker run으로 생성된 단일 nginx 컨테이너와 비슷
+  pod를 사용 하는 이유는 컨테이너 런타임의 인터페이스 제공 등 여러 가지 이유가 있지만 그 중에 하나는 여러 리눅스 namespace를 공유하는
   여러 컨테이너들을 추상화 된 집합으로 사용 하기 위함 
 
 * nginx-pod-with-ubuntu.yaml
@@ -417,29 +417,29 @@ spec:
     command: ["tail"]
     args: ["-f", "/dev/null"] # 포드가 종료되지 않도록 유지합니다
 
-  nginx 파드에 2개의 컨테이너가 설치 됨
-  -c 옵션을 사용 하여 파드의 특정 컨테이너에 접근 가능 
+  nginx pod에 2개의 컨테이너가 설치 됨
+  -c 옵션을 사용 하여 pod의 특정 컨테이너에 접근 가능 
   kubectl exec -it my-nginx-pod -c ubuntu-sidecar-container bash 
   curl localhost
   우분투 서버에 nginx를 설치 하지 않았는데도 localhost로 접근이 가능 함
-  - 파드 내의 컨테이너들이 네트워크 네임스페이스 등과 같은 리눅스 네임스페이스를 공유해 사용하기 때문
+  - pod 내의 컨테이너들이 네트워크 namespace 등과 같은 리눅스 namespace를 공유해 사용하기 때문
 
-* 완전환 애플리케이션으로서의 파드 
-  '하나의 파드는 하나의 완전한 애플리케이션'
-  사이드카 컨테이너 - 파드에 정의된 부가적인 컨테이너 ex) nginx 컨테이너에 부가적으로 설정변경,로그 수집등의 프로세스가 nginx 컨테이너와 함께 수행 
-  파드 냉의 다른 컨테이너와 네트워크 환경을 공유 
+* 완전환 애플리케이션으로서의 pod 
+  '하나의 pod는 하나의 완전한 애플리케이션'
+  사이드카 컨테이너 - pod에 정의된 부가적인 컨테이너 ex) nginx 컨테이너에 부가적으로 설정변경,로그 수집등의 프로세스가 nginx 컨테이너와 함께 수행 
+  pod 냉의 다른 컨테이너와 네트워크 환경을 공유 
 
-* 파드의 네트워크 네임스페이스는 pause라는 이름의 컨테이너로부터 네트워크를 공유 받아 사용
-   pause  파드별로 생성되는 컨테이너며 각 파드에 의해 자동으로 생성
+* pod의 네트워크 namespace는 pause라는 이름의 컨테이너로부터 네트워크를 공유 받아 사용
+   pause  pod별로 생성되는 컨테이너며 각 pod에 의해 자동으로 생성
    ps aux | grep pause
 
-#  레플리카셋(Replica Set) : 일정 개수의 파드를 유지 하는 컨트롤러 
-   파드가 생성된 노드에 장애가 발생하더라도 파드는 다른 노드를 다시 생성하지 않으면 단지 종료된 상태로 유지 됨 
-   이런 문제점을 해결하기 위해 레플리카셋과 같이 사용됨 
+#  replicaset(Replica Set) : 일정 개수의 pod를 유지 하는 컨트롤러 
+   pod가 생성된 노드에 장애가 발생하더라도 pod는 다른 노드를 다시 생성하지 않으면 단지 종료된 상태로 유지 됨 
+   이런 문제점을 해결하기 위해 replicaset과 같이 사용됨 
    
-   레플리카셋
-   * 정해진 수의 동일한 파드가 항상 실행되도록 관리 
-   * 노드 장애 등의 이유로 파드를 사용할 수 없다면 다른 노드에서 파드를 다시 생성 
+   replicaset
+   * 정해진 수의 동일한 pod가 항상 실행되도록 관리 
+   * 노드 장애 등의 이유로 pod를 사용할 수 없다면 다른 노드에서 pod를 다시 생성 
 
 * replicaset-nginx.yaml
 apiVersion: apps/v1
@@ -470,18 +470,18 @@ ex) kubectl get pods -> kubectl get po
 kubectl apply -f replicaset-nginx.yaml
 replicaset.apps/replicaset-nginx configured
 
-* kubectl delete rs replicaset-nginx 수행하면 레플리카셋에 의해 생성된 파드 또한 함께 삭제 됨 
+* kubectl delete rs replicaset-nginx 수행하면 replicaset에 의해 생성된 pod 또한 함께 삭제 됨 
 
 * 라벨 셀렉터 (Label Selector)
   selector:
     matchLabels:
       app: my-nginx-pods-label
 
-* 이전 버젼의 쿠버네티스에서는 레플리카셋이 아닌 레플리케이션 컨트롤러 라는 오브젝트를 통해 파드의 개수를 유지 
+* 이전 버젼의 쿠버네티스에서는 replicaset이 아닌 레플리케이션 컨트롤러 라는 오브젝트를 통해 pod의 개수를 유지 
 
-# 디플로이먼트(Deployment) : 레플리카셋, 파드의 배포를 관리 
-레플리카셋과 파드의 정보를 정의하는 디플로이먼트 라는 이름의 오브젝트를 YAML 파일에 정의해 사용 
-레플리카셋의 상위 오브젝트 디플로이먼트 생성하면 대응 하는 레플리카셋도 함께 생성
+# 디플로이먼트(Deployment) : replicaset, pod의 배포를 관리 
+replicaset과 pod의 정보를 정의하는 디플로이먼트 라는 이름의 오브젝트를 YAML 파일에 정의해 사용 
+replicaset의 상위 오브젝트 디플로이먼트 생성하면 대응 하는 replicaset도 함께 생성
 
 * deployment-nginx.yaml
 apiVersion: apps/v1
@@ -512,16 +512,16 @@ spec:
 * kubectl delete deploy my-nginx-deployment
 
 * 디플로이먼트를 사용하는 이유 
-애플리케이션을 업데이트 할 때 레플리카셋의 변경 사항을 저장하는 리비전을 남겨 롤백을 가능 하게 지원
+애플리케이션을 업데이트 할 때 replicaset의 변경 사항을 저장하는 리비전을 남겨 롤백을 가능 하게 지원
 무중단 서비스를 위해 롤링 업데이트의 전략을 지정 가능 
 
 * kubectl apply -f deployment-nginx.yaml --record 
-디플로이먼트에서 생성된 파드의 이미지를 변경 한다고 가정
+디플로이먼트에서 생성된 pod의 이미지를 변경 한다고 가정
 kubectl set image 사용 하여 변경
 kubectl set image deployment my-nginx-deployment nginx=nginx:1.11 --record
 위의 명령어는 image 항목을 nginx:1.11로 변경 후 kubectl apply -f 명령어로 적용해도 동일하게 변경 
 kubectl get replicasets 명령어로 출력하면 2개의 리플리카셋이 출력 됨 
-변경하여 새롭게 생성하였으나 이전 레플리카셋은  파드수가 0인 상태로 유지 (리비전으로서 보존)
+변경하여 새롭게 생성하였으나 이전 replicaset은  pod수가 0인 상태로 유지 (리비전으로서 보존)
 아래 명령어로 자세히 확인 가능 
 kubectl roolout history deployment my-nginx-deployment
 이전 버젼으로 롤백 하려고 한다면 아래 명령어로 롤백 처리 
@@ -532,23 +532,23 @@ kubectl describe deploy my-nginx-deployment
 * 리소스 정리 (모두 삭제 처리)
 kubectl delete deployment,pods,rs --all
 
-# 서비스(Service) : 파드를 연결하고 외부에 노출 
-YAML 파일에서 containerPort 항목을 정의했다고 해서 이 파드가 바로 외부로 노출되는 것은 아님
-외부로 노출해 사용자들이 접근하거나, 다른 디플로이먼트의 파드들이 내부적으로로 접근 하려면 서비스라고 부르는 별도의 쿠버네티스 오브젝트를 생성 해야 함 
+# 서비스(Service) : pod를 연결하고 외부에 노출 
+YAML 파일에서 containerPort 항목을 정의했다고 해서 이 pod가 바로 외부로 노출되는 것은 아님
+외부로 노출해 사용자들이 접근하거나, 다른 디플로이먼트의 pod들이 내부적으로로 접근 하려면 서비스라고 부르는 별도의 쿠버네티스 오브젝트를 생성 해야 함 
 
 서비스 기능
-* 여러 갱의 파드에 쉽게 접근할 수 있도록 고유한 도메인 이름을 부여
-* 여러 개의 파드에 접근할 때, 요청을 분산하는 로드 밸런서 기능을 수행
-* 클라우드 플랫폼의 로드 밸런서, 클러스터 노드의 포트 등을 통해 파드를 외부로 노출 
+* 여러 갱의 pod에 쉽게 접근할 수 있도록 고유한 도메인 이름을 부여
+* 여러 개의 pod에 접근할 때, 요청을 분산하는 로드 밸런서 기능을 수행
+* 클라우드 플랫폼의 로드 밸런서, 클러스터 노드의 포트 등을 통해 pod를 외부로 노출 
 
 서비스의 종류
 * ClusterIP 타입 
-쿠버네티스 내부에서만 파드들에 접근할 때 사용 - 외부에서 파드에 접근할 수 없는 서비스 타입 
+쿠버네티스 내부에서만 pod들에 접근할 때 사용 - 외부에서 pod에 접근할 수 없는 서비스 타입 
 * Node Port 타입 
-파드에 접근할 수 있는 포트를 클러스터의 모든 노드에 동일하게 개방 - 외부에서 파드에 접근할 수 있는 서비스 타입 
+pod에 접근할 수 있는 포트를 클러스터의 모든 노드에 동일하게 개방 - 외부에서 pod에 접근할 수 있는 서비스 타입 
 접근할 수 있는 포트는 랜덤으로 정해지지만 특정 포트로 접근 하도록 설정할 수도 있음 
 * LoadBalancer 타입 
-클라우드 플랫폼에서 제공하는 로드 밴런서를 동적으로 프로지저닝해 파드에 연결 - 외부에서 파드에 접근 할 수 있는 서비스 타입 
+클라우드 플랫폼에서 제공하는 로드 밴런서를 동적으로 프로지저닝해 pod에 연결 - 외부에서 pod에 접근 할 수 있는 서비스 타입 
 AWS, GCP 등과 같은 클라우드 플랫폼 환경에서만 사용 가능 
 
 
@@ -578,9 +578,9 @@ spec:
 kubectl  apply -f deployment-hostname.yaml
 kubectl get pods
 kubectl get pods -o wide  (IP 값 출력 옵션)
-클러스터 노드 중 하나에 접속해 노드에서 curl을 통해 파드로 접근 
+클러스터 노드 중 하나에 접속해 노드에서 curl을 통해 pod로 접근 
 
-* ClusterIP 타입의 서비스 - 쿠버네티스 내부에서만 파드에 접근하기 
+* ClusterIP 타입의 서비스 - 쿠버네티스 내부에서만 pod에 접근하기 
 * hostname-svc-clusterip.yaml
 apiVersion: v1
 kind: Service
@@ -595,15 +595,15 @@ spec:
     app: webserver
   type: ClusterIP
 
-* spec.selector : selector 항목은 이 서비스에서 어떠한 라벨을 가지는 파드에 접근할 수 있게 만들 것인지 결정
-위 예시에서는 app:webserver 라는 라벨을 가지는 파드들의 집합에 접근 할 수 있는 서비스를 생성 
-deployment-hostname.yaml 로 생성된 파드는 해당 라벨이 설정되어 있으므로 서비스에 접근 가능한 대상에 추가 됨
+* spec.selector : selector 항목은 이 서비스에서 어떠한 라벨을 가지는 pod에 접근할 수 있게 만들 것인지 결정
+위 예시에서는 app:webserver 라는 라벨을 가지는 pod들의 집합에 접근 할 수 있는 서비스를 생성 
+deployment-hostname.yaml 로 생성된 pod는 해당 라벨이 설정되어 있으므로 서비스에 접근 가능한 대상에 추가 됨
 
 * spec.ports.port : 생성된 서비스는 쿠버네티스 내부에서만 사용할 수 있는 공유한 IP(ClusterIP)를 할당 받음
 서비스의 IP에 접근할 때 사용할 포트를 설정 
 
-* spec.ports.targetPort : select 항목에서 정의한 라벨에 의해 접근 대상이 된 파드들이 내부적으로 사용하고 있는 포트를 입력 
-파드 템플릿에 정의된 containerPort와 같은 값으로 설정 
+* spec.ports.targetPort : select 항목에서 정의한 라벨에 의해 접근 대상이 된 pod들이 내부적으로 사용하고 있는 포트를 입력 
+pod 템플릿에 정의된 containerPort와 같은 값으로 설정 
 
 * spec.type : 서비스가 어떤 타입인지 나타냄 (ClusterIP, NodePort, LoadBalancer)
 
@@ -617,20 +617,20 @@ kubernetes               ClusterIP   10.96.0.1       <none>        443/TCP    23
 
 클러스터 노드 중 아무곳에서나 접속하여 CLUSTER-IP 값으로 접속  요청 
 
-kubectl run 명령어로 임시 파드를 생성하여 접속 요청 
+kubectl run 명령어로 임시 pod를 생성하여 접속 요청 
 kubectl run -i --tty --rm debug --image=alicek106/ubuntu:curl --restart=Never -- bash
 curl 10.99.231.150 --silent | grep Hello
 curl hostname-svc-clusterip:8080 --silent | grep Hello (IP 뿐만 아니라 NAME으로도 접근 - 내부 DNS을 구동하고 자동으로 이 DNS를 사용하도록 설정 됨)
-(여러번 호출해 보면 서비스와 연결된 여러개의 파드에 자동으로 요청이 분산됨 - 별도의 설정을 하지 않아도 서비스는 연결된 파드에 대해 로드밸런싱을 수행)
+(여러번 호출해 보면 서비스와 연결된 여러개의 pod에 자동으로 요청이 분산됨 - 별도의 설정을 하지 않아도 서비스는 연결된 pod에 대해 로드밸런싱을 수행)
 
-서비스의 라벨 셀렉터와 파드의 라벨이 매칭돼 연결되면 자동으로 엔드포인트라고 부르는 오브젝트를 생성 
+서비스의 라벨 셀렉터와 pod의 라벨이 매칭돼 연결되면 자동으로 엔드포인트라고 부르는 오브젝트를 생성 
 kubectl get endpoints # endpoints 대신 ep 사용해도 됨 
 
 서비스 삭제 
 kubectl delete svc hostname-svc-clusterip
 kubectl delete -f hostname-svc-clusterip.yaml 
 
-# NodePort 타입의 서비스 - 서비스를 이용해 파드를 외부에 노출
+# NodePort 타입의 서비스 - 서비스를 이용해 pod를 외부에 노출
 스윔모드에서 컨테이너를 외부로 노출하는 방식과 비슷
 모든 노드의 특정 포트를 개방해 서비스에 접근 하는 방식 
 
@@ -681,13 +681,13 @@ NodePort로 서비스를 외부에 제공하는 경우는 많지 않음
 - SSL 인증서 적용 , 라우팅 등과 같은 복잡한 설정을 서비스에 적용하기 어려움 
 - NodePort서비스 그 자체를 통해 서비스를 외부에 제공하기 보다는 Ingress 부르는 쿠버네티스의 오브젝트를 간접적으로 사용하는 경우가 많음 
 
-특정 클라이언트가 같은 파드로부터만 처리되게 하려면 sessionAffinity: ClientIP로 설정 
+특정 클라이언트가 같은 pod로부터만 처리되게 하려면 sessionAffinity: ClientIP로 설정 
 spec:
  essionAffinity: ClientIP
 
 # LoadBalancer 타입의 서비스 - 클라우드 플랫폼의 로드 밴런서와 연동하기 
-서비스 생성과 동시에 로드 밸런서를 새롭게 생성해 파드와 연결 
-클라우드 플랫폼으로부터 도메인 이름과 IP를 할당 받기 때문에 NodePort보다 더욱 쉽게 파드에 접근 
+서비스 생성과 동시에 로드 밸런서를 새롭게 생성해 pod와 연결 
+클라우드 플랫폼으로부터 도메인 이름과 IP를 할당 받기 때문에 NodePort보다 더욱 쉽게 pod에 접근 
 로드 밸런서를 동적으로 생성하는 기능을 제공하는 환경에서만 사용 가능 
 (MetalLB, 오픈스택의 LBassB등과 같은 온프레스미 환경에서도 LoadBalancer 타입의 서비스를 사용할 수 있는 방법이 있음)
 
@@ -730,7 +730,7 @@ MetalLB, 오픈스택과 같은 특수한 환경을 직접 구축
 * 트래픽의 분배를 결정하는 서비스 속성 : externalTrafficPolicy
 kubectl get  svc hostname-svc-nodeport -o yaml 
 externalTrafficPolicy: Cluster <- 기본 값 해당 값을 Local로 설정하면 
-파드가 생성된 노드에서만 파드로 접근할 수 있음 , 로컬 노드에 위치한 파드 중 하나로 요청이 전달 
+pod가 생성된 노드에서만 pod로 접근할 수 있음 , 로컬 노드에 위치한 pod 중 하나로 요청이 전달 
 
 * hostname-svc-lb-local.yaml
 apiVersion: v1
@@ -770,7 +770,7 @@ spec:
 ##  Kubernetes 리소스의 관리와 설정
 
 # Namespace : 리소스를 논리적으로 구분하는 장벽
-파드, 레플리카셋, 디플로이먼트, 서비스 등과 같은 쿠버네티스 리소스들이 묶여 있는 하나의 가상 공간 또는 그룹 
+pod, replicaset, 디플로이먼트, 서비스 등과 같은 쿠버네티스 리소스들이 묶여 있는 하나의 가상 공간 또는 그룹 
 논리적으로 구분된 것일 뿐 물리적으로 구분된 거는 아님 
 
 kubectl get namespace  or ns 
@@ -782,8 +782,8 @@ kubectl get pods --namespace default
 라벨 또한 리소스 분류 하고 구분하기 위한 하나의 방법 
 kubectl get pods -l app=webserver
 
-# 네임스페이스 사용하기 
-* 네임스페이스 생성 
+# namespace 사용하기 
+* namespace 생성 
 * production-namespace.yaml
 apiVersion: v1
 kind: Namespace
@@ -797,7 +797,7 @@ kubectl create namespace production
 생성확인 
 kubectl get ns | grep production 
 
-* 특정 네임스페이스에 리소스를 생성 
+* 특정 namespace에 리소스를 생성 
 yaml 파일의 metadata.namespace 항목을 설정 
 *  hostname-deploy-svc-ns.yaml
 apiVersion: apps/v1
@@ -838,7 +838,200 @@ spec:
 
 kubectl apply -f hostname-deploy-svc-ns.yaml
 kubectl get pods,services -n production
-kubectl get pods --all-namespaces # 모든 네임스페이스의 내용 확인 
+kubectl get pods --all-namespaces # 모든 namespace의 내용 확인 
+
+# namespace의 서비스 접근하기 
+<서비스이름>.<namespace이름>.svc  처럼 서비스 이름 뒤에 namespace 이름을 붙이면 다른 namespace의 서비스에 접근 가능
+curl hostname-svc-clusterip-ns.production.svc:8080 --silent | grep Hello
+
+namespace 삭제 시 namespace에 존재하는 모든 리소스도 함께 삭제 됨
+kubectl delete namespace production
+
+# namespace에 종속되는 쿠버네티스 오브젝트와 독립적인 오브젝트 
+모든 리소스가 namespace에 의해 구분되는 것은 아님
+pod,서비스,replicaset,디플로이먼트는 namespace 단위로 구분
+
+namespace에 속하는 오브젝트의 종류 확인 명령어 
+kubectl api-resources --namespaced=true
+
+namespace에 종속하지 않는 오브젝트 종류 확인 명령어
+kubectl api-resources --namespaced=false
+
+기본적으로 사용하도록 설정되는 namespace는 default 지만 쿠버네티스 설정을 담고 있는 kubeconfig라는 파일 수정으로 변경 가능
+kubens 오픈 소스 스크립트를 사용해 변경 가능 
+아래는 기본 namespace를 kube-system으로 변경 처리 
+kubens kube-system
+
+# Configmap , Secret : 설정 값을 pod에 전달
+YAML 파일에 환경 변수를 직접 설정 (ex : LOG_LEVEL 설정) - 실행 환경 별로 YAML 파일을 다중으로 관리하게 되는 문제점 발생 
+spec:
+      containers:
+      - name: nginx
+        env:
+        - name: LOG_LEVEL
+          value: INFO
+        image: nginx:1.10
+
+쿠버네티스는 YAML 파일과 설정값을 분리할 수 있는 Configmap, Secret 라는 오브젝트 제공 
+
+# Configmap
+일반적인 설정값을 담아 저장할 수 있는 쿠버네티스 오브젝트 , namespace에 속하기 때문에 namespace별로 Configmap이 존재 
+
+생성방법
+yaml 파일로 생성 해도 되지만 kubectl create configmap 명령어로도 생성 가능 
+kubectl create configmap <configmap 이름><설정 값>
+kubectl create configmap log-level-configmap --from-literal LOG_LEVEL=debug
+kubectl create configmap start-k8s --from-literal k8s=kubernetes --from-literal container=docker 
+
+설정값 확인
+kubectl get configmap or cm 
+kubectl describe configmap log-level-configmap 
+
+사용방법 
+* configmap 값을 pod의 컨테이너 환경 변수로 사용 
+  configmap에 저장된 키-값 데이터가 컨테이너의 환경 변수의 키-값으로 그대로 사용 
+  shell 에서  echo $LOG_LEVEL  과 같은 방법으로 확인 
+  시스템 환경 변수로서 설정 값을 사용 한다면 이 방법이 유용 
+
+* configmap 값을 pod 내부의 파일로 마운트해 사용 
+  LOG_LEVEL=INFO 라는 값을 가지는 configmap을  /etc/config/log_level 이라는 파일로 마운트 하면 log_level 파일에 INFO라는 값이 저장 됨
+  파일이 위치할 경로는 별도로 설정 가능 nginx.conf등의 파일을 통해 설정값을 읽어 들인다면 이 방법이 유용 
+
+* configmap의 데이터를 컨테이너의 환경 변수로 가져오기 
+* all-env-from-configmap.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: container-env-example
+spec:
+  containers:
+    - name: my-container
+      image: busybox
+      args: ['tail', '-f', '/dev/null']
+      envFrom:
+      - configMapRef:
+          name: log-level-configmap
+      - configMapRef:
+          name: start-k8s
+
+kubectl apply -f all-env-from-configmap.yaml
+kubectl exec container-env-example env
+
+* selective-env-from-configmap.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: container-selective-env-example
+spec:
+  containers:
+    - name: my-container
+      image: busybox
+      args: ['tail', '-f', '/dev/null']
+      env:
+      - name: ENV_KEYNAME_1     # (1.1) 컨테이너에 새롭게 등록될 환경 변수 이름
+        valueFrom:
+          configMapKeyRef:
+            name: log-level-configmap
+            key: LOG_LEVEL
+      - name: ENV_KEYNAME_2  # (1.2) 컨테이너에 새롭게 등록될 환경 변수 이름
+        valueFrom:
+          configMapKeyRef:
+            name: start-k8s      # (2) 참조할 컨피그맵의 이름
+            key: k8s             # (3) 가져올 데이터 값의 키
+                                 # 최종 결과 -> ENV_KEYNAME_2=$(k8s 키에 해당하는 값)
+                                 #              ENV_KEYNAME_2=kubernetes
+
+kubectl apply -f selective-env-from-configmap.yaml
+kubectl exec container-selective-env-example env | grep ENV
+
+envFrom : configmap에 존재하는 모든 키-값 쌍을 가져옴
+valueFrom,configMapKeyRf : configmap에 존재하는 키-값 쌍 중에서 원한는 데이타만 선택적으로 가져옴 
+
+* configmap 의 내용을 파일로 pod 내부에서 마운트하기 
+
+* volume-mount-configmap.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: configmap-volume-pod
+spec:
+  containers:
+    - name: my-container
+      image: busybox
+      args: [ "tail", "-f", "/dev/null" ]
+      volumeMounts:
+      - name: configmap-volume          # volumes에서 정의한 컨피그맵 볼륨 이름
+        mountPath: /etc/config             # 컨피그맵의 데이터가 위치할 경로
+
+  volumes:
+    - name: configmap-volume            # 컨피그맵 볼륨 이름
+      configMap:
+        name: start-k8s
+
+* spec.volumes: YAML 파일에서 사용할 볼륨을 정의 
+* spec.containers.volumeMounts: volumes 항목에서 정의된 볼륨을 컨테이너 내부의 어떤 디렉토리에 마운트 할 것인지 정의 
+
+kubectl apply -f volume-mount-configmap.yaml
+kubectl exec configmap-volume-pod ls /etc/config 
+kubectl exec configmap-volume-pod cat /etc/config/k8s
+
+* selective-volume-configmap.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: selective-cm-volume-pod
+spec:
+  containers:
+    - name: my-container
+      image: busybox
+      args: [ "tail", "-f", "/dev/null" ]
+      volumeMounts:
+      - name: configmap-volume
+        mountPath: /etc/config       
+  volumes:
+    - name: configmap-volume
+      configMap:
+        name: start-k8s
+        items:                       # 컨피그맵에서 가여올 키-값의 목록을 나열
+        - key: k8s                    # k8s라는 키에 대응하는 값을 가져옴
+          path: k8s_fullname         # 최종 파일 이름은 k8s_fullname
+
+* items: 컨피그맵에서 가져올 키-값의 목록을 의미 
+* path : 최종적으로 디렉토리에 위치할 파이을 이름을 입력 하는 항목 
+
+kubectl apply -f selective-volume-configmap.yaml
+kubectl exec selective-cm-volume-pod ls /etc/config
+kubectl exec selective-cm-volume-pod cat /etc/config/k8s_fullname
+
+# 파일로부터 configmap 생성하기 
+단순 문자열 값을 이용해 configmap 생성할때는 kubectl create configmap --from-literal 명령어 사용 
+파일로부터 생성하려면 --from-file 옵션을 사용 , 옵션을 여러번 사용해 여러 개의 파일을 configmap에 저장 할 수 도 있음 
+kubectl create configmap <컨피그맵 이름> --from-file <파일 이름>
+echo Hello, world >> index.html
+kubectl create configmap index-file --from-file index.html 
+--from-file 옵션에서 별도의 키를 지정하지 않으면 파일 이름이 키로 파일의 내용이 값으로 저장 됨
+kubectl describe configmap index-file 
+키의 이름을 직접 지정 하는 방식 
+kubectl create configmap index-file-customkey --from-file myindex=index.html 
+--from-env-file 옵션으로 여러 개의 키-값 형태의 내용으로 구성된 설정 파일을 한꺼번에 컨피그맵으로 가져올 수도 있음 
+cat multiple-keyvalue.env
+mykey1=myvalue1 
+mykey2=myvalue2
+mykey3=myvalue3 
+
+kubectl create configmap from-envfile --from-env-file multiple-keyvalue.env
+kubectl get cm from-envfile -o yaml 
+
+# YAML 파일로 컨피그맵 정의하기 
+kubectl create 명령어에서 --dry-run   -o yaml  옵션을 사용하면 컨피그앱을 생성하지 않은 채로 YAML 파일의 내용을 출력 가능 
+kubectl create configmap my-configmap --from-literal mykey=myvalue --dry-run -o yaml 
+출력된 내용을 yaml 파일로 배포에 사용 
+kubectl create configmap my-configmap --from-literal mykey=myvalue --dry-run -o yaml  > my-configmap.yaml
+kubectl apply -f my-configmap.yaml 
+--dry-run 옵션을 추가하면 실행 가능 여부를 확인 실제로 쿠버네티스에 리소스를 생성 하지 않음 
+
+
+
 
 
 
@@ -858,7 +1051,7 @@ kubectl get pods --all-namespaces # 모든 네임스페이스의 내용 확인
 ##  커스텀 리소스와 컨트롤러 
 
 ########################################################
-##  파드를 사용하는 다른 오브젝트들
+##  pod를 사용하는 다른 오브젝트들
 
 ########################################################
 ##  쿠버네티스 모니터링 
