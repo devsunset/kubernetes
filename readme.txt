@@ -1030,10 +1030,102 @@ kubectl create configmap my-configmap --from-literal mykey=myvalue --dry-run -o 
 kubectl apply -f my-configmap.yaml 
 --dry-run 옵션을 추가하면 실행 가능 여부를 확인 실제로 쿠버네티스에 리소스를 생성 하지 않음 
 
+# Secret
+SSH키, 비밀번호 등과 같이 민감한 정보를 저장하기 위한 용도로 사용  네임스페이스에 종속되는 오브젝트 
+configmap과 사용법 비슷 
+kubectl create secret generic my-password --from-literal password=1q2w3e4r
+configmap 처럼 --from-literal, --from-file, --from-env-file  옵션 사용 가능 
+kubectl get secrets
+kubectl get secret my-password -o yaml  
+값이 base64로 인코딩되어 있음 아래 명령어로 원래 값 확인 가능 
+echo MXEydzNlNHI=  |  base64 -d
+위 처럼 생성한 secret는 configmap과 비슷 하게 사용 가능 
+YAML 파일에 base64로 인코딩한 값을 입력했더라도 secret pod의 환경 변수나 볼륨 파일로서 가져오면 base64 디코딩된 원래의 값을 사용하게 됨 
 
+# 이미지 레지스트리 접근을 위한 docker-registry 타입의 시크릿 사용하기 
+kubectl get secrets
+출력되는 항목 중 TYPE 항목이 시크릿의 종류에 해당
+Opaque : 별도로 시크릿의 종류를 명시하지 않으면 자동으로 설정되는 타입 생성시 generic 로 명시했던 것이 Opaque 타입에 해당 하는 종류
 
+쿠버네티스에서 이미지 받아올때 인증 정보 처리 
+1. docker login 명령어로 로그인에 성공했을 때 도커 엔진이 자동으로 생성하는 ~/.docker/config.json파일 사용 
+kubectl create secret generic registry-auth --from-file=.dockerconfigjson=/root/.docker/config.json --type=kubernetes.io/dockerconfigjson 
+2. 시크릿을 생성하는 명령어에서 직접 로그인 인증 정보를 명시 
+kubectl create secret docker-registry registry-auth-by-cmd --docker-username=username --docker-password=password
+--docker-server 옵션을 사용하지 않으면 기본적으로 도커허브를 사용 
+사설 레지스트리를 사용하려면  --docker-server 옵션에 서버의 주소 또는 도메인 이름을 설정
+kubectl create secret docker-registry registry-auth-by-cmd --docker-username=username --docker-password=password --docker-server=private_registry_address_or_domain 
 
+도커 허브의 Private Repository 에 저장된 이미지를 통해 파드를 생성하려면 YAML 파일에서 imagePullSecret항목을 정의 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-from-prvate-repo
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      name: mypod
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: test-container
+        image: alicek106.ipdisk.co.kr/busybox:latest
+        args: ['tail', '-f', '/dev/null']
+      imagePullSecrets:
+      - name: registry-auth-registry
 
+# TLS 키를  저장할 수 있는 tls 타입의 시크릿 
+시크릿은 TLS 연결에 사용되는 공개키, 비밀키 등을 쿠버네티스에 자체적으로 저장할 수 있도록 tls 타입을 지원 
+테스트용 키 페어 생성
+openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj "/CN=example.com" -keyout cert.key -out cert.crt 
+kubectl create secret tls  my-tls-secret --cert cert.crt --key cert.key 
+kubectl get secrets my-tls-secret 
+kubectl get secrets my-tls-secret -o yaml 
+
+# 쉡게 컨피그맵과 시크릿 리소스 배포하기 
+시크릿이나 컨피그맵을 배포하기 위해 YAML 파일을 작성할 때 , 데이터를 YAML 파일로부터 분리 할 수 있는 kustomize 기능 제공 
+kustomize는 kubectl 1.14 버전 부터 지원 
+자주 사용되는 YAML 파일의 속성을 별도로 정의해 재사용 하거나 여러 YAML 파일을 하나로 묶는 등 다양한 용도록 사용할 수 있는 기능 
+
+* kustomization.yaml 
+secretGenerator:                # 시크릿을 생성하기 위한 지시문
+- name: kustomize-secret
+  type: kubernetes.io/tls       # tls 타입의 시크릿을 생성
+  files:
+  - tls.crt=cert.crt            # tls.crt 라는 키에 cert.crt 파일의 내용을 저장
+  - tls.key=cert.key            # tls.key 라는 키에 cert.key 파일의 내용을 저장
+
+시크릿을 생성하기 전에 kustomize로 부터 생성될 시크릿 정보를 미리 확인 하려면 kubectl kustomize 명령어 사용 
+,/ 경로에 kustomization.yaml 파일 위치 
+kubectl kustomize ./ 
+생성 
+kubectl apply -k ./ 
+삭제
+kubectl delete -k ./ 
+
+컨피그맵을 kustomize로부터 생성하고 싶다면 kustomization.yaml  파일에서 secretGenerator 대신 configmapGenerator를 사용 하면 됨 
+시크릿과 달리 type 항목은 정의 하지 않음 
+* kustomization.yaml 
+configmapGenerator:                # 컨피그맵을 생성하기 위한 지시문
+- name: kustomize-configmap
+  files:
+  - tls.crt=cert.crt            # tls.crt 라는 키에 cert.crt 파일의 내용을 저장
+  - tls.key=cert.key            # tls.key 라는 키에 cert.key 파일의 내용을 저장
+
+  kustomization으로 생성된 컴피그맵이나 시크릿의 이름 뒤에는 저장된 데이타로부터 추출된 해시값이 자동으로 추가 
+  kubectl 명령어 사용할 때도 --append-hash 옵션을 이용해 리소스의 이름뒤에 해시값을 추가할 수 있음
+  kubectl create secret tls kustomize-secret --cert cert.crt --key cert.key --append-hash 
+  --append-hash를 사용하면 데이터를 시크릿이나 컨피그앱의 이름에 명확히 나타낼수 있다는 장점 
+
+#  컨피그맵이나 시크릿을 업데이트해 애플리케이션의 설정값 변경하기 
+3가지 방법 
+kubectl edit  명령어로 수정  
+YAML 파잉을 변경한 뒤 다시 kubectl apply 명령어 실행 
+kubectl patch 명령어 사용 
 
 ########################################################
 ##  Ingress
