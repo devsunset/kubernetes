@@ -1127,6 +1127,12 @@ kubectl edit  명령어로 수정
 YAML 파잉을 변경한 뒤 다시 kubectl apply 명령어 실행 
 kubectl patch 명령어 사용 
 
+리소스 정리 
+kubectl delete deployment --all
+kubectl delete pod --all
+kubectl delete configmap --all
+kubectl delete secret --all
+
 ########################################################
 ##  Ingress
 
