@@ -769,6 +769,79 @@ spec:
 ########################################################
 ##  Kubernetes 리소스의 관리와 설정
 
+# Namespace : 리소스를 논리적으로 구분하는 장벽
+파드, 레플리카셋, 디플로이먼트, 서비스 등과 같은 쿠버네티스 리소스들이 묶여 있는 하나의 가상 공간 또는 그룹 
+논리적으로 구분된 것일 뿐 물리적으로 구분된 거는 아님 
+
+kubectl get namespace  or ns 
+기본으로 default , kube-node-lease, kube-public, kube-system 존재
+
+특정 namespace 에 대한 정보 확인  (--namespace 옵션 명시 하지 않으면 기본적으로 default 사용됨)
+kubectl get pods --namespace default
+
+라벨 또한 리소스 분류 하고 구분하기 위한 하나의 방법 
+kubectl get pods -l app=webserver
+
+# 네임스페이스 사용하기 
+* 네임스페이스 생성 
+* production-namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+
+kubectl apply -f production-namespace.yaml
+or
+kubectl create namespace production
+
+생성확인 
+kubectl get ns | grep production 
+
+* 특정 네임스페이스에 리소스를 생성 
+yaml 파일의 metadata.namespace 항목을 설정 
+*  hostname-deploy-svc-ns.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hostname-deployment-ns
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webserver
+  template:
+    metadata:
+      name: my-webserver
+      labels:
+        app: webserver
+    spec:
+      containers:
+      - name: my-webserver
+        image: alicek106/rr-test:echo-hostname
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostname-svc-clusterip-ns
+  namespace: production
+spec:
+  ports:
+    - name: web-port
+      port: 8080
+      targetPort: 80
+  selector:
+    app: webserver
+  type: ClusterIP
+
+kubectl apply -f hostname-deploy-svc-ns.yaml
+kubectl get pods,services -n production
+kubectl get pods --all-namespaces # 모든 네임스페이스의 내용 확인 
+
+
+
 ########################################################
 ##  Ingress
 
@@ -791,9 +864,17 @@ spec:
 ##  쿠버네티스 모니터링 
 
 
-
-
-
+########################################################
+##  유용한 강좌
+1. [AWS에서 kubeadm로 클라우드 프로바이더를 설정해 쿠버네티스 설치하기](https://blog.naver.com/alice_k106/221696987140)
+2. [kops 설치 시, IAM 역할 및 사용자 생성하기](https://blog.naver.com/alice_k106/221342005691)
+3. [쿠버네티스 컴포넌트의 실행 옵션 변경하기](https://blog.naver.com/alice_k106/221737477464)
+4. [쿠버네티스 버전이 너무 낮을 때 Nginx Ingress 포드가 Pending으로 뜨는 현상](./lecture4-nginx-ingress.md)
+5. [GKE에서 Google Persistent Disk를 사용해 퍼시스턴트 볼륨 사용하기](https://blog.naver.com/alice_k106/221737984779)
+6. [Dex와 Guard를 이용한 쿠버네티스 사용자 인증 방법](https://blog.naver.com/alice_k106/221598325656)
+7. [CPU Affinity를 위해 CPU Manager 사용하기](https://blog.naver.com/alice_k106/221633530545)
+8. [애드미션 컨트롤러를 직접 구현해보기](https://blog.naver.com/alice_k106/221546328906)
+9. [커스텀 리소스의 제어를 위한 Operator 직접 구현해보기](https://blog.naver.com/alice_k106/221586279079)
     
 
     
