@@ -1760,6 +1760,115 @@ kubectl get pv,pvc
 ########################################################
 ##  보안을 위한 인증과 인가 : ServiceAccount와 RBAC
 
+RABC(Role Based Access Control)을 기반으로 하는 Service Account 
+RABC라는 기능을 통해 특정 명령을 실행할 수 있는 권한을 서비스 어카운트에 부여 
+권한을 부여받은 서비스 어카운트는 해당 권한에 해당하는 기능만 사용 가능 
+
+* kubectl  명령어를 사용할때 내부적으로 처리 되는 절차
+user -> kubectl -> http핸들러 -> Authentication -> Authorization -> Mulating Admisssion Controller -> Validating Admisssion Controller -> eted
+
+쿠버네니티스 설치할때 설치 도구가 자동으로 kubectl이 관리자 권한을 갖도록 설정  - 설정 내용은 ~/.kube/config 라는 파일에서 확인 가능 
+
+# 서비스 어카운트와 Role, Cluster Role
+서비스 어카운트는 체계적으로 권한을 관리하기 위한 쿠버네티스 오브젝트 
+네임스페이스에 속하는 오브젝트로 serviceaccount or sa 라는 이름으로 사용 
+
+kubectl get serviceaccount 
+kubectl create , delete 명령어로 생성 삭제 
+kubectl create sa alicek106
+--as 옵션을 사용하면 임시로 특정 서비스 어카운트 사용 가능 
+
+kubectl get services --as system:serviceaccount:default:alicek106
+Error from server (Forbidden): services is forbidden: User "system:serviceaccount:default:alicek106" cannot list resource "services" in API group "" in the namespace "default"
+에러 반환 - 서비스 목록을 조회할 수 있는 권한 부여 받지 않았기 때문 
+
+# 권한 부여 2가지 방법 
+Role  : 네임스페이스에 속함 , 부여할 권한이 무엇인지를 나타냄 ex) 디플로이먼트를 생성, 서비스 목록 조회 
+Cluster Role  : 네임스페이스에 속하지 않음 , 클러스터 단위의 권한을 정의 ex) 퍼시스턴트 볼륨의 목록을 조회 (네임스페이스에 속하지 않는 오브젝트)
+
+kubectl get role
+kubectl get clusterrole
+
+* service-reader-role.yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: service-reader
+rules:
+- apiGroups: [""]                 # 1. 대상이 될 오브젝트의 API 그룹
+  resources: ["services"]          # 2. 대상이 될 오브젝트의 이름
+  verbs: ["get", "list"]             # 3. 어떠한 동작을 허용할 것인지 명시
+
+ apiGroups : 어떠한 API 그룹에 속하는 오브젝트에 대해 권한을 지정할지 설정 , "" 로 설정한 건 파드, 서비스 등이 포함된 코어 API 그룹을 의미  kubectl api-reousrces 로 오브젝트가 어떤 그룹에 속하는지 확인 가능
+ resources : 어떠한 쿠버네티스 오브젝트에 대해 권한을 정의할지 설정 
+ verbs : resource에  지정된 오브젝트에 대해 어떤 동작을 수행할 수 있는지 정의 (get, list, watch, create, update, patch , delete 등에서 선택 할수 있고 와일드 카드를 의미 하는 * 를 사용할 수 있음)
+            특정 리소스에 한정된 기능을 사용할 때는 서브 리소스를 명시 해야 할 수도 있음 ex) resources: ["pods/exec"]
+
+ Role을 생성하는 것만으로 서비스 어카운트나 사용자에게 권한이 부여되지 않음 
+ Role을 특정 대상에게 부여하려면 롤바인딩(RoleBinding) 이라는 오브젝트를 통해 특정 대상과 롤을 연결해야 함 
+
+ * rolebinding-service-reader.yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: service-reader-rolebinding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: alicek106
+  namespace: default
+roleRef:
+  kind: Role
+  name: service-reader
+  apiGroup: rbac.authorization.k8s.io
+
+kubectl apply -f service-reader-role.yaml  
+kubectl apply -f rolebinding-service-reader.yaml 
+kubectl get services --as system:serviceaccount:default:alicek106
+
+롤 바인딩과 롤, 서비스 어카운트는 모두 1:1 관계가 아님 
+하나의 롤은 여러 개의 롤 바인딩에 의해 참조 될수 있고 하나의 서비스 어카운트는 여러 개의 롤 바인딩에 의해 권한을 부여 받을 수 있음 
+ 
+ # Role vs Cluster Role
+
+kubectl get node --as system:serviceaccount:default:alicek106 
+kubectl get services --as system:serviceaccount:default:alicek106 --all-namespaces
+Error from server (Forbidden): services is forbidden: User "system:serviceaccount:default:alicek106" cannot list resource "services" in API group "" at the cluster scops
+
+Role 은 네임스페이스에 종속 Cluster Role은 네임스페이스에 종속 안됨 - Cluster Role ( 클러스터 단위의 리소스에 권한을 정의하기 위해 사용)
+
+* nodes-reader-clusterrole.yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  namespace: default
+  name: nodes-reader
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+
+* clusterrolebinding-nodes-reader.yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nodes-reader-clusterrolebinding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: alicek106
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: nodes-reader
+  apiGroup: rbac.authorization.k8s.io
+
+  kubectl apply -f nodes-reader-clusterrole.yaml 
+  kubectl apply -f clusterrolebinding-nodes-reader.yaml 
+
+
+
 ########################################################
 ##  어플리케이션 배포를 위한 고급 설정
 
