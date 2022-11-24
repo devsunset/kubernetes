@@ -2092,10 +2092,119 @@ export secret_name=alicek106-token-gfg41
 export decoded_token=$(kubectl get secret $secret_name -o jsonpath='{.data.token}' | base64 -d)
 kubeconfig 파일은 vim편집기로 직접 수정 해도 되지만 kubectl config 명령어로 수정 가능
 kubectl config set-credentials 명령어로 새로운 사용자 등록 가능
-kubectl config set-credentials alicek105-user --token=$decoded_token <- 사용자 추가 
+kubectl config set-credentials alicek106-user --token=$decoded_token <- 사용자 추가 
 kubectl config set-context my-new-context --cluster=kubernetes --user=alicek106-user <- 컨텍스트 생성
 kubectl config get-contextskubectl config use-context my-new-context  <- 컨텍스트 변경 
 
+# User & Group 
+롤 방인딩이나 클러스터 롤 바인딩을 정의 하는 YAML 파일의 Kind 값에는 ServiceAccount 대신 User , Group 설정 할수 있음 
+오브젝트가 아님 kubectl user or group 사용할 수 없음 
+
+kubectl get service --as system:serviceaccount:default:alicek106
+--as 에 사용한 system:serviceaccount:default:alicek106은 사실 서비스 어카운트를 지칭하는 고유한  User 이름 임
+서비스 어카운트를 생성하면 system:serviceaccount:<네임스페이스 이름>:<서비스어카운트 이름> 이라는 유저 이름으로 서비스 어카운트를 지칭할 수 있음 
+Group은 User를 모아 놓은 집합 
+쿠버네티스에서 사용할 수 있는 대표적인 그룹은 서비스 어카운트의 집합인 system:serviceaccounts로 시작하는 그룹 
+Kind:Group 으로 명시하되 그룹 이름을 system:serviceaccounts로 설정하면 됨 
+그룹 예시 - 미리 정의된 유저나 그룹은 접두어   system: 을 사용 
+system:serviceaccounts:<네임스페이스 이름> : 특정 네임스페이스의 모든 서비스 어카운트를 의미
+system:authenticated : API 서버의 인증에 성공한 그룹
+system:unauthenticated : API 서버의 인증에 실패한 그룹
+system:anonymous : API 서버의 인증에 실패한 유저 
+
+# 다양한 인증 방법에서의 User와 Group 
+kubeconfig 파일에 기본적으로 설정돼 있는 인증 방법은 쿠버네티스 자체적으로 지원하는 인증 방법인 'x509 인증서'
+별도의 인증 서버를 사용하면 깃허브 계정, 구글 계정, LDAP 데이터 등을 쿠버네티스 인증에 사용 할 수 있음 
+- 별도의 인증 서버는 쿠버네티스가 아닌 별도의 솔루션을 사용해 구축 하는 것이 일반적
+  OAuth OIDC를 사용해 인증 시스템을 구축하려면 덱스(Dex)  사용
+  단순 토큰을 이용해 웹훅(Webhook) 인증 시스템을 구축하려면 가드(Guard) 사용 
+
+# x509 인증서를 이용한 사용자 인증
+보안 연결을 위해 자체적으로 사인한 루트 인증서를 사용 쿠버네티스 설치시 자동으로 생성됨
+kubeadm의 경우 기본적으로 쿠버네티스 마스터의 /etc/kubernetes/pki 디렉토리에 저장 
+kops를 사용하고 있다면 S3 버킷의 ${클러스터이름}/pki 디렉토리에 저장 
+
+ls /etc/kubernetes/pki 
+ca.crt 가 루투 인증서 ca.key 인증서에 대응하는 비밀키 
+쿠버네티스 루트 인증서로부터 발급된 하위 인증서를 사용하면 쿠버네티스 사용자를 인증할 수 있음 
+
+ex) 루트 인증서로부터 하위 인증서를 생성해 API 서버에 인증
+1. 하위 인증서를 위한 비밀키와 인증서 사인요청 파일을 생성 
+openssl genrsa -out alicek106.key 2048
+openssl req -new -key alicek106.key -out alicek106.csr -subj "/O=alicek106-org/CN=alicek106-cert"
+위 처럼 생성하면 롤 바인딩 등에서 alicek106-cert라는 이름의 유저에게 권한을 부여 해야 함 
+
+2. 쿠버네티스의 비밀키로 alicek106.csr 파일에 서명 - openssl 명령어 직접 사용해도 되지만 서명하는 기능을  API로 제공 
+* alicek106-csr-k8s-latest.yaml
+# 쿠버네티스 1.19 버전부터 새로운 CSR 리소스 형식이 도입되었습니다.
+# 최신 버전 (1.22 버전 이상) 의 쿠버네티스를 사용하고 있다면 아래의 리소스를 사용해주세요.
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: alicek106-csr
+spec:
+  signerName: kubernetes.io/kube-apiserver-client
+  groups:
+  - system:authenticated
+  request: <CSR>
+  usages:
+  - digital signature
+  - key encipherment
+  - client auth
+
+  CertificateSigningRequest  리소스를 생성하면 쿠버네티스에ㅔ서 내부적으로 루트 인증서의 비밀키로 서명해 반환 
+
+alicek106.csr 파일의 내용을 base64로 인코딩한 다음 alicek106-csr.yaml 파일의 <CSR> 부분으로 가져옴
+export CSR=$(cat alicek106.csr | base64 | tr -d '\n')
+sed -i -e "s/<CSR>/$CSR/g" alicek106.csr.yaml 
+kubectl apply -f alicek106-csr-k8s-latest.yaml 
+kubectl get csr ( CONDITION 항목이  Pending 상태)
+kubectl certificate approve alicek106-csr
+kubectl get csr ( CONDITION 항목이  Approved.Issued 상태)
+kubectl get csr alicek106-csr -o jsonpath='{status.certificate}' | base64 -d > alicek106.crt 
+
+3. 새롭게 생성된 하위 인증서 파일인 alicek106와 비밀키 파일인 alice_k106.key로 kubeconfog에 새로운 사용자 등록 
+kubectl config set-credentials alicek106-x509-user  -- client-certificate=alicek106.crt --client-key=alicek106.key 
+
+* kubectl의 부가 명령어인 --client-certificate , --client-key 옵션을 사용하면 kubeconfig에 하위 인증서와 비밀키 등록하지 않아도 임시로 인증서 테스트 할 수 있음 
+kubectl get svc -- client-certificate=alicek106.crt --client-key=alicek106.key 
+
+4. 새롭게 등록한 사용자를 통해 새 컨텍스트 함께 생성  후 사용 컨텍스트 변경 
+kubectl config set-context alicek106-x509-context --cluster kubernetes ==user alicek106-x509-user 
+kubectl config use-context alicek106-x509-context 
+
+5. 권한 부여 
+* x-509-cert-rolebinding-user.yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: service-reader-rolebinding-user
+  namespace: default
+subjects:
+- kind: User
+  name: alicek106-cert
+roleRef:
+  kind: Role
+  name: service-reader
+  apiGroup: rbac.authorization.k8s.io
+
+* x-509-cert-rolebinding-group.yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: service-reader-rolebinding-group
+  namespace: default
+subjects:
+- kind: Group
+  name: alicek106-org
+roleRef:
+  kind: Role
+  name: service-reader
+  apiGroup: rbac.authorization.k8s.io
+
+x509 인증서를 이용한 인증 방법은 한계점이 있어 실제 환경에서는 사용하기 어려울 수 있음 
+인증서가 유출됬을때 하위 인증서를 파기 하는 기능이 제공 안됨 파일로 인증 정보를 관리 하는 것은 보안상 미흡
+개념적으로 만 학습 하고 실제 클러스터를 운영할 때는 덱스나 가드 등의 솔루션을 이용해 깃허브 , LDAP 같은 서드 파티에서 인증정보 관리 하는게 효율적임 
 
 ########################################################
 ##  어플리케이션 배포를 위한 고급 설정
