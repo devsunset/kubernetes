@@ -319,7 +319,7 @@ $ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 $ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 ########################################################
-##  Kubernetes 시작하기 
+##  Kubernetes 시작하기
 
 * 모든 리소스는 오브젝트 형태로 관리 됨 
   컨테이너 집합 (Pods)
@@ -1866,6 +1866,191 @@ roleRef:
 
   kubectl apply -f nodes-reader-clusterrole.yaml 
   kubectl apply -f clusterrolebinding-nodes-reader.yaml 
+
+# 여러 개의 클러스터 롤을 조합해서 사용하기 
+자주 사용되는 클러스터 롤이 있다면 다른 클러스터 롤에 포함시켜 재사용 - Role aggregration 
+* clusterrole-aggregation.yaml 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grand-parent-clusterrole
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-parent-clusterrole: "true"
+rules: []
+  #- apiGroups: [""]
+  #  resources: ["nodes"]
+  #  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+aggregationRule:
+  clusterRoleSelectors:
+  - matchLabels:
+      rbac.authorization.k8s.io/aggregate-to-parent-clusterrole: "true"
+metadata:
+  name: parent-clusterrole
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-child-clusterrole: "true"
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: child-clusterrole
+aggregationRule:
+  clusterRoleSelectors:
+  - matchLabels:
+      rbac.authorization.k8s.io/aggregate-to-child-clusterrole: "true"
+rules: [] # 어떠한 권한도 정의하지 않았습니다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-reader-test
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: parent-clusterrolebinding
+subjects:
+- kind: ServiceAccount
+  name: node-reader-test
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: child-clusterrole
+  apiGroup: rbac.authorization.k8s.io
+
+kubectl apply -f clusterrole-appregation.yaml 
+kubectl get no --as system:serviceaccount:default:node-reader-test 
+
+# 쿠버네티스 API 서버에 접근 
+서비스 어카운트의 시크릿을 이용해 쿠버네티스 API 서버에 접근 
+API 서버도 HTTP 요청을 통해 쿠버네티스의 기능을 사용할 수 있도록 REST API 제공 
+API 접근 위한 엔드포인트는 자동으로 개방되기 때문에 별도의 설정을 하지 않아도 접근 가능 
+기본적으로 HTTPS 요청만 처리 하도록 설정 self-signed 인증서를 사용함 
+
+curl https://localhost:6443 -k
+{
+  "kind": "Status",
+  "apiVersion": "v1",
+  "metadata": {},
+  "status": "Failure",
+  "message": "forbidden: User \"system:anonymous\" cannot get path \"/\"",
+  "reason": "Forbidden",
+  "details": {},
+  "code": 403
+}
+인증 정보 사용하지 않았기 때문에  403에러 발생 
+API 서버에 접근하려면 별도의 인증 정보를 HTTP 페이로드에 포함시켜 REST API 요청을 전송해야 함 
+쿠버네티스는 서비스 어카운트를 위한 인증 정보를 시크릿에 저장 - 서비스 어카운트 생성하면 이에 대응하는 시크릿이 자동으로 생성 
+서비스 어카운트에 연결된 시크릿에는 ca.crt (쿠버네티스 클러스터의 공개인증서), namespace(해당 서비스 어카운트가 존재하는 네임스페이스 저장), token(JWT) 총 3개의 데이터가 저장 되어 있음 
+kubectl get secrets
+
+# API 서버의 REST API 엔드포인트로 요청을 보낼 때 token의 데이터를 함께 담아서 보내야 인증 가능 
+* 시크릿의 token 데이터를 base64로 디코딩한 다음 임시로 쉘 변수에 저장 
+export secret_name=alicek106-token-cr2jv
+export decoded_token=$(kubectl get secret $secret_name -o jsonpath='{.data.token}' | base64 -d)
+echo $decoded_token
+* header 에 token 정보 담아 재 요청 - 정상 호출 됨 
+curl https://localhost:6443/apis --header "Authorization: Bearer $decoded_token" -k 
+
+# kubectl proxy 명령어를 이용해 임시 프락시를 생성해서 API 서버에 별도의 인증 없이도 접근 가능 
+   기본적으로 로컬 호스트 요청만 처리할 수 있으므로 가능하면 테스트 용도로만 사용 
+kubectl proxy 
+curl localhost:8001/   <- 호출 하면 사용할 수 있는 모든 경로를 출력 
+
+kubectl 에서 사용할 수 있는 기능은 모두 REST API 에서 사용 가능 
+
+/metrics 와 /logs에 접근하면 권한이 없다고 오류 반환 
+권한 부여 
+*  nonresource-rul-clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: api-url-access
+rules:
+- nonResourceURLs: ["/metrics", "/logs"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: api-url-access-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: api-url-access
+subjects:
+- kind: ServiceAccount
+  name: alicek106
+  namespace: default
+
+# 클러스터 내부에서 kubernetes 서비스를 통해 API 서버에 접근 
+사용자가 쿠버네티스 기능을 사용하려면 kubectl 이나 REST API 등의 방법을 통해 API 서버에 접근
+쿠버네티스 클러스터 내부에서 실행되는 애플리케이션은   API 접근 할수 있는 서비스 리소슬 미리 생성하고 있음 -  kubernetes 라는 이름의 서비스 
+파드는 kubernetes.default.svc라는 DNS 이름을 통해 쿠버네티스 API를 사용할 수 있음  - 접근은 되지만 특별한 권한이 따로 주어지는 것은 아님 
+시크릿 토큰을 HTTP 요청에 담아 kubernetes 서비스에 전달해야만 인증가 인가를 진행 
+쿠버네티스는 파드를 생성할 때 자동으로 서비스 어카운트의 시크릿을 파드 내부에 마운트 따라서 시크릿의 데이터를 파드로 가져올 필요는 없음 
+시크릿 데이터는 기본적으로 파드의 /var/run/secrets/kubernetes.io/serviceaccount 경로에 마운트됨 (데이터가 각각 파일로 존재)
+파드 내부에서 API 서버에 접근해야 한다면 token 파일에 저장된 내용을 읽어와 사용하면 됨 
+
+# 쿠버네티스 SDK를 이용해 파드 내부에서 API 서버에 접근 
+파드 내부에서 실행되는 애플리케이션이라면  HTTP 요청으로 REST API 를 사용해도 되지만 특정 언어로 바인딩된 쿠버네티스 SDK를 활용하는 방식을 더 많이 사용 
+
+1. 서비스 어카운트 ,  롤, 롤 바인딩 처리 
+kubectl create sa alicek106
+kubectl apply -f service-reader-role.yaml
+kubectl apply -f rolebinding-service-reader.yaml 
+
+2. YAML 파일에 serviceAccountName 항목을 명시적으로 지정해 파드를 생성 
+* sa-pod-python-sdk.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: k8s-python-sdk
+spec:
+  serviceAccountName: alicek106
+  containers:
+  - name: k8s-python-sdk
+    image: alicek106/k8s-sdk-python:latest
+
+kubectl apply -f sa-pod-python-sdk.yaml 
+
+3. 파드 내부에 마운트된 alicek106의 시크릿을 확인
+kubectl exec -it k8s-python-sdk bash 
+root@k8s-python-sdk:/# ls /var/run/secrets/kubernetes.io/serviceaccount/
+ca.crt namespace token 
+
+4. python 코드로 쿠버네티스 API  사용할수 있는 코드  작성 
+* list-service-and-pod.py 
+from kubernetes import client, config
+config.load_incluster_config() # 1 -  파드 내부에 마운트된 어카운트 인증서 정보 읽어 인증 및 인가 수행 
+
+try:
+  print('Trying to list service..')
+  result = client.CoreV1Api().list_namespaced_service(namespace='default') # 2 -  CoreV1 그룹의 API를 이용해 특정 네임스페이스 서비스 목록 출력 
+  for item in result.items:
+    print('-> {}'.format(item.metadata.name))
+except client.rest.ApiException as e:
+  print(e)
+
+print('----')
+
+try:
+  print('Trying to list pod..')
+  result = client.CoreV1Api().list_namespaced_pod(namespace='default') # 3 - CoreV1 그룹의 API를 이용해 특정 네임스페이스 파드  목록 출력 
+  for item in result.items:
+    print(item.metadata.name)
+except client.rest.ApiException as e:
+  print(e)
+
+5. python3 list-service-and-pod.py 
+위의 명령어로 파이썬 코드 실행 하면 서비스 목록은 정상 출력되나 파드 목록 출력은 에러 발생 ( 조회 관련 권한을 부여받지 않았기 때문)
+
+# 서비스 어카운트에 이미지 레지스트리 접근을 위한 시크릿 설정 
+
 
 
 
