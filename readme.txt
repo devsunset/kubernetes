@@ -2049,9 +2049,52 @@ except client.rest.ApiException as e:
 5. python3 list-service-and-pod.py 
 위의 명령어로 파이썬 코드 실행 하면 서비스 목록은 정상 출력되나 파드 목록 출력은 에러 발생 ( 조회 관련 권한을 부여받지 않았기 때문)
 
-# 서비스 어카운트에 이미지 레지스트리 접근을 위한 시크릿 설정 
+# 서비스 어카운트에 이미지 레지스트리 접근을 위한 시크릿 설정   
+ docker-registry 타입의 시크릿 도커 이미지 레지스트리에 접근하기 위해 사용 
+ 디플로이먼트 , 파드 정의 하는 YAML 파일에서 imagePullSecrets항목에 명시해 사용 
+ 서비스 어카운트를 이용하면 비공개 레지스트리 접근을 위한 시크릿을 서비스 어카운트 자체에 설정 할 수 있음 
+ 디플로이먼트 , 파드 YAML 파일에 정의 하지 않아도 됨 
+ex) registry-auth 라는 이름의 시크릿이 존재 한다면 아래 처럼 작성 
+ * sa-reg-auth.yaml 
+ apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reg-auth-alicek106
+  namespace: default
+imagePullSecrets:
+- name: registry-auth
 
+kubectl apply -f sa-reg-auth.yaml 
+kubectl describe sa reg-auth-alicek106 | grep image
+Image pull secrets: registry-auth 
 
+YAML 파일에서 serviceAccountName 항목을 정의하지 않으면 기본으로 default  서비스 어카운트의 시크릿이 파드에 마운트 됨 
+default 서비스 어카운트에 imagePullSecrets 항목을 추가하면 아무런 설정을 하지 않았을 때에도 사설 레지스트리 인증을 기본적으로 수행 되게 설정할 수 있음 
+
+# kubeconfig 파일에 서비스 어카운트 인증 정보 설정 
+kubectl 명령어를 사용해 쿠버네티스 클러스터 제어 할때는 kubeconfig 설정 파일을 통해 인증을 진행 
+쿠버네티스 설치하면 kubeconfig  파일에는 기본적으로 클러스터 관리자 권한을 가지는 인증서 정보가 저장됨 
+권한이 제한된 서비스 어카운트를 통해 kubectl 명령어를 사용하도록 kubeconfig 파일을 설정 할 수 있음 
+- 서비스 어카운트에 연결된 시크릿의 token 데이터를 kubeconfig에 명시함으로써 kubelctl 명령어의 권한을 제한 할 수 있음 
+
+kubeconfig 파일은 ~/.kube/config 경로에 존재 - KUBECONFIG 쉘 환경 변수로 경로를 직접 지정 가능 
+3개의 파트로 구성 
+* clusters 
+- kubectl이 사용할 쿠버네티스 API  서버의 접속 정보 목록 
+* users
+- 쿠버네티스 API 서버에 접속하기 위한 사용자 인증 정보 목록  - 서비스 어카운트의 토큰을 입력 할 수 있음 , 루트 인증서에서 발급한 하위 인증서의 데이타를 입력 
+* contexts 
+- clusters 항목과 users 항목에 정의된 값을 조합해 최종적으로 사용할 쿠버네티스 클러스터의 정보를 설정 
+
+ex) users 항목에 서비스 어카운트의 token 데이터를 등록 및 컨테스트 추가 및 사용 컨텍스트 변경 
+kubectl get secrets
+export secret_name=alicek106-token-gfg41
+export decoded_token=$(kubectl get secret $secret_name -o jsonpath='{.data.token}' | base64 -d)
+kubeconfig 파일은 vim편집기로 직접 수정 해도 되지만 kubectl config 명령어로 수정 가능
+kubectl config set-credentials 명령어로 새로운 사용자 등록 가능
+kubectl config set-credentials alicek105-user --token=$decoded_token <- 사용자 추가 
+kubectl config set-context my-new-context --cluster=kubernetes --user=alicek106-user <- 컨텍스트 생성
+kubectl config get-contextskubectl config use-context my-new-context  <- 컨텍스트 변경 
 
 
 ########################################################
