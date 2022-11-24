@@ -1134,7 +1134,7 @@ kubectl delete configmap --all
 kubectl delete secret --all
 
 ########################################################
-##  Ingress (*)
+##  Ingress (설정 내용 추가 Study 필요) 
 
 외부 요청을 어떻게 처리할 것인지 네트워크 7계층 레벨에서 정의하는 쿠버네티스 오브젝트 
 * 외부 요청의 라우팅 : /apple , /apple/red 등과 같이 특정 경로로 들어온 요청을 어떠한 서비스에 전달할지 정의 하는 라우팅 규칙 
@@ -1357,6 +1357,195 @@ kubernetes.io/ingress.class annotation에 Nginx, Kong, GKE등 여러 개의 인�
 
 ########################################################
 ##  퍼시스턴트 볼륨(PV) 과 퍼시트턴트 볼륨 클레임 (PVC)
+
+파드의 데이타를 영속적으로 저장하기 위한 방법 
+호스트에 위치한 디렉토리를 각 파드와 공유함으로써 데이타를 보존 - pod 장애시 대응 힘듬
+퍼시스턴트 볼륨 - 워커 노드들이 네트워크상에서 스토리지를 마운트해 영속적으로 데이타를 저장할 수 있는 볼륨
+NFS, AWS EBS(Elastic Block Store), Ceph , ClusterFS 
+쿠버네티스는 퍼시스턴트 볼륨을 사용하기 위한 기능을 자체적으로 제공 
+
+# 로컬 볼륨 : hostPath, emptyDir 
+hostPath : 호스트와 볼륨을 공유 하기 위해 사용
+emptyDir : 파드의 컨테이너 간에 볼륨을 공유 하기 위해 사용 
+
+# 워커 노드의 로컬 디렉토리를 볼륨으로 사용 : hostPath 
+* hostpath-pod.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath-pod
+spec:
+  containers:
+    - name: my-container
+      image: busybox
+      args: [ "tail", "-f", "/dev/null" ]
+      volumeMounts:
+      - name: my-hostpath-volume
+        mountPath: /etc/data
+  volumes:
+    - name: my-hostpath-volume
+      hostPath:
+        path: /tmp
+
+kubectl apply -f hostpath-pod.yaml
+kubectl exec -it hostpath-pod touch /etc/data/mydata
+파드가  생성된 워커 노드에 접속
+ls /tmp/mydata
+
+디플로이먼트 파드에 장애가 생겨 다른 노드로 파드가 옮겨갔을 경우 , 이전 노드에 저장된 데이타를 사용할 수 없음 
+스케쥴링을 이용해 특정 노드에만 파드를 배치하는 방법도 있지만 호스트 서버에 장애가 생기면 데이터를 읽게 되는 단점 
+hostPath 볼륨은 모든 노드에 배치해야 하는 특수한 파드의 경우에 유용 
+
+# 파드 내의 컨테이너 간 임시 데이터 공유 : emptyDir 
+파드의 데이터를 영속적으로 보존하기 위해 외부 볼륨을 사용하는 것이 아닌 파드가 실행되는 도중에만 필요한 휘발성 데이터를 
+각 컨테이너가 함께 사용할 수 있도록 임시 저장 공간을 생성 
+비어있는 상태로 생성되며 파드가 삭제되면 emptyDir에 저장돼 있던 데이터도 함께 삭제됨 
+
+* emptydir-pod.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: emptydir-pod
+spec:
+  containers:
+  - name: content-creator
+    image: alicek106/alpine-wget:latest
+    args: ["tail", "-f", "/dev/null"]
+    volumeMounts:
+    - name: my-emptydir-volume
+      mountPath: /data                      # 1. 이 컨테이너가 /data 에 파일을 생성하면
+  - name: apache-webserver
+    image: httpd:2
+    volumeMounts:
+    - name: my-emptydir-volume
+      mountPath: /usr/local/apache2/htdocs/  # 2. 아파치 웹 서버에서 접근 가능합니다.
+  volumes:
+    - name: my-emptydir-volume
+      emptyDir: {}                             # 포드 내에서 파일을 공유하는 emptyDir
+
+emptyDir은 한 컨테이너가 파일을 관리하고 한 컨테이너가 그 파일을 사용하는 경우에 유용 
+kubectl apply -f emptydir-pod.yaml
+kubectl exec -it emptydir-pod -c content-creator sh 
+echo Hello, Kubernetes! >> /data/test.html 
+kubectl describe pod emptydir-pod | grep IP
+kubectl run -i --tty --rm debug --image=alicek106/ubuntu:curl --restart=Never -- curl IP/test.html 
+
+# 네트워크 볼륨
+플러그인 설치하지 않아도 다양한 종류의 네트워크 볼륨을 파드에 마운트 가능 
+온프레스미 환경에서 구축할 수 있는 NFS, iSCSI, ClusterFS, Ceph
+AWS EBS(Elastic Block Store)
+GCP gcePersistentDisk
+
+# NFS를 네트워크 볼륨으로 사용하기 
+NFS(Network File System) 네트워크 스토리지 
+여러 개의 스토리지를 클러스터링 하는 다른 솔루션에 비해 안정성이 떨어지나 하나의 서버만으로 간편하게 사용 , 로컬 스토리지 처럼 사용할 수 있다는 장점
+NFS Server : 영속적인 데이터가 실제로 저장되는 네트워크 스토리지 서버 
+NFS Client  : NFS 서버에 마운트해 스토리지에 파일을 읽고 쓰는 역활 
+
+아래 NFS 서버는 네트워크 볼륨 기능을 테스트하기 위한 용도 실 운영 시는 NFS  서버 도입 필요 
+
+* nfs-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+spec:
+  selector:
+    matchLabels:
+      role: nfs-server
+  template:
+    metadata:
+      labels:
+        role: nfs-server
+    spec:
+      containers:
+      - name: nfs-server
+        image: gcr.io/google_containers/volume-nfs:0.8
+        ports:
+          - name: nfs
+            containerPort: 2049
+          - name: mountd
+            containerPort: 20048
+          - name: rpcbind
+            containerPort: 111
+        securityContext:
+          privileged: true
+
+* nfs-service.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-service
+spec:
+  ports:
+  - name: nfs
+    port: 2049
+  - name: mountd
+    port: 20048
+  - name: rpcbind
+    port: 111
+  selector:
+    role: nfs-server
+
+kubectl apply -f nfs-deployment.yaml
+kubectl apply -f nfs-service.yaml 
+
+* nfs-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nfs-pod
+spec:
+  containers:
+    - name: nfs-mount-container
+      image: busybox
+      args: [ "tail", "-f", "/dev/null" ]
+      volumeMounts:
+      - name: nfs-volume
+        mountPath: /mnt           # 포드 컨테이너 내부의 /mnt 디렉터리에 마운트합니다.
+  volumes:
+  - name : nfs-volume
+    nfs:                            # NFS 서버의 볼륨을 포드의 컨테이너에 마운트합니다.
+      path: /
+      server: {NFS_SERVICE_IP}
+
+server 항목이 nfs-service 의 DNS 이름이 아닌 {NFS_SERVICE_IP}로 설정
+NFS 볼륨의 마운트는 컨테이너 내부가 아닌 워커 노드에서 발생하므로 서비스의 DNS 이름으로 NFS 서버에 접근 할수 없음
+노드에서는 파드의 IP로 통신은 할 수 있지만 쿠버네티스의 DNS를 사용하도록 설정돼 있지는 않기 때문 
+예외적으로 NFS 서비스의 ClusterIP를 직접 얻은 뒤 YAML 파일에 사용 하여 파드 생성
+
+*  NFS 서버에 접근하기 위한 서비스의 ClusterIP 
+export NFS_CLUSTER_IP=$(kubectl get svc/nfs-service -o jsonpath='{.spec.clusterIP}')
+* nfs-pod의 server 항목을 NFS_CLUSTER_IP로 교체해 생성
+cat nfs-pod.yaml | sed "s/{NFS_SERVICE_IP}/$NFS_CLUSTER_IP/g" | kubectl apply -f - 
+
+kubectl get pod nfs-pod
+kubectl exec -it nfs-pod sh 
+# df -h 
+NFS 서버에 마운트 하려면 워커 노드에서 별도의 NFS 패키지를 설치 해야 할 수도 있음
+apt-get install nfs-common 
+
+# PV,PVC를 이용한 볼륨 관리 
+퍼시스턴트 볼륨과 퍼시스턴트 볼륨 클레임을 사용 하는 이유
+YAML 파일에 NFS 처럼 볼륨을 명시하는 경우 볼륨과 애플리케이션의 정의가 서로 밀접하게 연관돼 있어 서로 분리할 수 없는 상황 초래
+PV,PVC는 볼륨이 세부적인 사항을 몰라도 볼륨을 사용할 수 있도록 추상화 해주는 역활을 담당 
+파드를 생성하는 YAML 입장에서는 네트워크의 볼륨이 NFS인지 EBS인지 상관없이 볼륨을 사용할 수 있도록 해주는게 핵심 
+- PV로 네트워크 스토리지 관련 내용 설정 
+- PVC로 YAML 파일에 명시 
+PV의 속성과 PVC의 요구 사항이 일치하면 두개의 리소스를 bind 
+사용자는 디플로이먼트의 YAML 파일에 볼륨의 상세한 스펙을 정의하지 않아도 됨 
+
+# 퍼시스턴트 볼륨과 퍼시스턴트 볼륨 클레임 사용하기 
+퍼시스턴트 볼륨 : persistentvolume  or  pv
+퍼시스턴트 볼륨 클레임 : persistentvolumeclaim or pvc 
+kubectl get persistentvolume,persistentvolumeclaim
+kubectl get pv,pvc
+
+# AWS에서 EBS를 퍼시스턴트 볼륨으로 사용하기 (kops로 쿠버네티스 설치했다면 퍼시스턴트 볼륨을 EBS와 연동해 사용 할 수 있음)
+
+
+
+
 
 ########################################################
 ##  보안을 위한 인증과 인가 : ServiceAccount와 RBAC
