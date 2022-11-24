@@ -1542,10 +1542,220 @@ kubectl get persistentvolume,persistentvolumeclaim
 kubectl get pv,pvc
 
 # AWS에서 EBS를 퍼시스턴트 볼륨으로 사용하기 (kops로 쿠버네티스 설치했다면 퍼시스턴트 볼륨을 EBS와 연동해 사용 할 수 있음)
+1. AWS에서 EBS 생성 
+2. 퍼시스턴트 볼륨 생성
+* ebs-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ebs-pv
+spec:
+  capacity:
+    storage: 5Gi         # 이 볼륨의 크기는 5G입니다.
+  accessModes:
+    - ReadWriteOnce    # 하나의 포드 (또는 인스턴스) 에 의해서만 마운트 될 수 있습니다.
+  awsElasticBlockStore:
+    fsType: ext4
+    volumeID: <VOLUME_ID>
+3. 퍼시스턴트 볼륨 클레임과 파드 생성
+* ebs-pod-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-ebs-pvc                  # 1. my-ebs-pvc라는 이름의 pvc 를 생성합니다.
+spec:
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce       # 2.1 속성이 ReadWriteOnce인 퍼시스턴트 볼륨과 연결합니다.
+  resources:
+    requests:
+      storage: 5Gi          # 2.2 볼륨 크기가 최소 5Gi인 퍼시스턴트 볼륨과 연결합니다.
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ebs-mount-container
+spec:
+  containers:
+    - name: ebs-mount-container
+      image: busybox
+      args: [ "tail", "-f", "/dev/null" ]
+      volumeMounts:
+      - name: ebs-volume
+        mountPath: /mnt
+  volumes:
+  - name : ebs-volume
+    persistentVolumeClaim:
+      claimName: my-ebs-pvc    # 3. my-ebs-pvc라는 이름의 pvc를 사용합니다.
 
+accessModes와 resources 항목은 볼륨의 요구사항 - 해당 조건을 만족하는 퍼시스턴트 볼륨과 연결돼야 한다는 의미 
+요구사항과 일치하는 퍼시스턴트 볼륨이 존재하지 않는다면 파드는 계속해서 Pending 상태로 남음 
+조건에 맞는 볼륨이 생성되면 자동으로 퍼시스턴트 볼륨 클레임과 연결 됨
+kubectl get pv,pvc 
+퍼시스턴트 볼륨과 퍼시스턴트 볼륨 클레임의 상태가 bound 로 설정 됬다면 성공적으로 연결된 것
+EBS 볼륨은 기본적으로 읽기, 쓰기가 모두 가능하면 1:1  관계의 마운트만 가능하기 때문에 ReadWriteOnce를 사용 
 
+# 퍼시스턴트 볼륨을 선택하기 위한 조건 명시 
+* accessModes와 볼륨 크기, 스토리지클래스, 라벨 셀렉터를 이용한 퍼시스턴트 볼륨 선택 
+accessModes나 볼륨의 크기는 메타데이터일 뿐 볼륨이 정말로 그러한 속성을 가지도록 강제하지는 않음 
 
+# accessModes
+ReadWriteOnce RWO 1:1마운트만 가능, 읽기 쓰기 가능
+ReadOnlyMany ROX 1:N 마운트 가능, 읽기 전용
+ReadWriteMany RWX 1:N 마운트 가능, 읽기 쓰기 가능 
 
+* esb-pv.yaml
+spec:
+  accessModes:
+    - ReadWriteOnce   
+
+* esb-pod-pvc.yaml 
+spec:
+  accessModes:
+    - ReadWriteOnce     
+
+#  resources.requests.storge  볼륨 크기 
+
+* esb-pv.yaml
+spec:
+  capacity:
+    storage: 5Gi
+
+* esb-pod-pvc.yaml 
+spec:
+  resources:
+    requests:
+      storage: 5Gi      
+
+#  storageClassName
+
+* ebs-pv-storgeclass.yaml
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: my-ebs-volume
+
+* ebs-pod-pvc-custom-sc.yaml 
+spec:
+  storageClassName: my-ebs-volume
+
+# label 
+
+* ebs-pv-label.yaml 
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ebs-pv-label
+  labels:
+    region: ap-northeast-2a
+
+* ebs-pod-pvc-label-selector.yaml 
+spec:
+  selector:
+    matchLabels:
+      region: ap-northeast-2a
+
+# 퍼시스턴트 볼륨의 라이프사이클과 Reclaim Policy 
+kubectl get pv,pvc 
+
+출력 항목중 STATUS 
+Available (사용 가능)
+Bound (연결됨)
+Released( PVC 삭제시  상태 - 퍼시스턴트 볼륨의 사용이 끝났다는 것을 의미 다시 사용 불가 - 실제 데이타는 볼륨 안에 존재 하기 때문에 삭제 하고 다시 생성)
+
+출력 항목중 RECLAIM POLICY 
+Reclaim Policy  - 퍼시스턴트 볼륨의 사용이 끝났을때 해당 볼륨을 어떻게 초기화할 것인지 별도로 설정 가능 
+Retain , Delete , Recycle 방식이 있음 
+
+# Retain : 기본적으로 보존하는 방식 (LifeCycle : Available -> Bound -> Released)
+
+# Delete :   퍼시스턴트 볼륨 클레임이 삭제됨과 동시에 퍼시턴트 볼륨도 함께 삭제 가능한 경우에 한해서는 연결된 외부 스토리지도 함께 삭제 (데이타 유실)
+*  ebs-pv-delete.yaml 
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ebs-pv-delete
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  awsElasticBlockStore:
+    fsType: ext4
+    volumeID: <VOLUME_ID>
+  persistentVolumeReclaimPolicy: Delete
+
+# Recycle : 퍼시스턴트 볼륨 클레임이 삭제됬을 때 퍼시스턴트 볼륨의 데이터를 모두 삭제한 뒤 Available 상태로 만들어 줌 Deprecated 될 예정 (데이타 유실 )
+
+# StorageClass와 Dynamic Provisioning 
+다이나믹 프로비저닝은 퍼시스턴트 볼륨 클레임이 요구하는 조건과 일치하는 퍼시스턴트 볼륨이 존재하지 않는 다면 자동으로 퍼시스턴트 볼륨과 
+외부 스토리지를 함께 프로지저닝 하는 기능 
+EBS 와 같은 외부 스토리지를 미리 생성해둘 필요가 없음 퍼시스턴트 볼륨 클레임을 생성화면 외부 스토리지가 자동으로 생성
+범용적으로 사용할 수 있는 기능은 아님 다이나믹 프로비저닝 기능이 지원되는 스토리지 프로비저너가 미리 활성화 되어 있어야 함 
+AWS aws-ebs-csi-driver , GKE GcePersistentDiskCsiDriver 를 설치 했다면 자동으로 다이나믹 프로비저닝을 사용할 수 있음 
+주의 할 점 : 퍼시스턴트 볼륨의 Reclaim Ploicy 가 자동으로 Delete로 설정됨 
+                  Delete가 아닌 정책을 사용하고 싶다면 스토리지 클래스를 정의하는 YAML 파일에 reclaimPolicy: Retain 명시 하거나 kubectl edit or patch 등의 명령어로 직접 변경 필요 
+
+- 다아니막 프로지저닝에서 특정 스톨리지 클래스를 기본값으로 사용 
+* storageclass-default.yaml 
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: generic
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+  fsType: ext4
+  zones: ap-northeast-2a # 여러분의 쿠버네티스 클러스터가 위치한 가용 영역을 입력합니다.
+ 스토리지 클래스를 별도로 명시하지 않으면 자동으로 기본 스토리지 클래스를 통해 다이나믹 프로비저닝이 수행 
+ storageClassName의 값을 "" 공백으로 설정하면 다이나믹 프로비저닝이 발생하지 않음 
+
+# AWS에서 다이나믹 프로비저닝 사용하기 
+1. kubectl get storageclass or sc 
+
+2. storageclass 생성 
+* storageclass-slow.yaml 
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: slow
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: st1
+  fsType: ext4
+  zones: ap-northeast-2a  # 여러분의 쿠버네티스 클러스터가 위치한 가용 영역을 입력합니다.
+
+* storageclass-fast.yaml 
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: fast
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+  fsType: ext4
+  zones: ap-northeast-2a # 여러분의 쿠버네티스 클러스터가 위치한 가용 영역을 입력합니다.
+
+3. 퍼시스턴트 볼륨 클레임을 생성함으로써 다이나믹 프로비저닝을 발생 
+* pvc-past-sc.yaml 
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-fast-sc
+spec:
+  storageClassName: fast
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+4. 생성 확인
+kubectl get pv,pvc
 
 ########################################################
 ##  보안을 위한 인증과 인가 : ServiceAccount와 RBAC
