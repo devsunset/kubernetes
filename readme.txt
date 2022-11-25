@@ -3033,12 +3033,460 @@ if __name__ == '__main__':
                 print(json.loads(e.body)['message'])    
 =======================================
 
+# 쿠버네티스 애플리케이션 상태와 배포 
+kubectl apply -f  
 
+고도화된 배포 방식 
+Spinnaker , Helm, Kustomize , ArgoCD, Jenkins 지속적인 패포 도구 (Continuous Delivery)
 
+쿠버네티스는 애플리케이션을 안정적으로 배포할 수 있도록 몇가지 기능을 제공 
+- 새로운 버전의 애플리케이션이 점진적으로 배포될 수 있도록 디플로이먼트 롤링 업데이트 
+- Revision 
+- 새롭게 배포되는 파드의 애플리케이션이 사용자의 요청을 처리할 준비가 됐는지 확인 , 삭제될 파드가 애플리케이션을 우아하게 종료 
 
+# 디플로이먼트를 이용한 레플리카셋의 버전 관리 
+- 레플리카셋의 변경 사항을 저장하는 리비전을 디플로이먼트에서 관리 함으로써 애플리케이션의 배포를 용이 
+--record 옵션을 추가해 디플로이먼트의 변경 사항을 적용 히스토리에 기록됨 이런 리비전을 이용해 언제든지 롤백 가능 
+기본적으로 레플리카셋의 리비전은 10개까지만 히스토리에 저장 필요시 디플로이먼트 생성할때 revisionHistoryLimit 이라는 항목을 직접 설정 가능 
 
+* deployment-history-limit.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-history-limit
+spec:
+  revisionHistoryLimit: 3
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.17
+        ports:
+        - containerPort: 80
 
-   
+  # 디플로이먼트를 통한 롤링 업데이트 설정 
+  일시적으로 사용자의 요청을 처리하지 못해도 괜찮은 애플리케이션이라면 쿠버네티스에서 제공하는 ReCreate 방법 사용 
+  - 기존의 파드를 모두 삭제 한뒤, 새로운 버전의 파드를 생성하는 방식 
+  
+   이러한 배포 전략은 디플로이먼트 YAML 파일에 있는 strategy 의 type항목에서 설정 
+
+* deployment-recreate-v1.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-recreate
+spec:
+  replicas: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.15
+        ports:
+        - containerPort: 80
+
+파드를 조금씩 삭제하고 생성하는 롤링 업데이트 기능 제공 
+- YAML 파일에서 별도의 설정을 하지 않아도 디플로이먼트의 버전을 업데이트할 때는 기본적으로 롤링 업데이트를 사용 하도록 설정 되어 있음 
+롤링 업데이트 도중에 기존 버전의 파드를 몇 개씩 삭제할 것인지 , 새로운 버전의 파드는 몇개씩 생성할 것인지 직접 설정 가능 
+strategy 의 type 항목을 RollingUpdate 로 설정 
+
+* deployment-rolling-update.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-rolling-update
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.15
+        ports:
+        - containerPort: 80
+
+maxSurge, maxUnavailable 설정 값은 숫자나 비율%로 설정 가능 - 비율로 설정할 시 maxSurge의 소수점 값은 반올림 maxUnavailable 소수점 값은 버림 처리 됨  두 옵션 모두 기본값은 25%
+maxUnavailable : 사용 불가능한 상태가 되는 파드의 최대 개수를 설정 
+maxSurge : 전체 파드의 개수가 디플로이먼트의 replicas 값보다 얼마나 더 많이 존재할 수 있는지 설정 
+
+* rolling-update-example-v1.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-rolling-update
+spec:
+  replicas: 4
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.15
+        ports:
+        - containerPort: 80
+
+* rolling-update-example-v2.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-rolling-update
+spec:
+  replicas: 4
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.16
+        ports:
+        - containerPort: 80
+
+maxUnavailable의 값을 0으로 설정하면 롤링 업데이트 도중 전체 파드 개수는 적어도 replicas의 개수 만큼은 유지  
+이때 maxSurge 값도 0으로 함께 설정해 버리면 전체 파드 개수의 상한선과 하한선이 같아져 버리기 때문에 새로운 버전의 파드 생성이 안됨 롤링 업데이트 진행 안됨 
+롤링 업데이트 시에는 구버젼 , 신규 버젼 애플리케이션이 공존 할수 있음 
+
+# 블루 그린 배포 사용하기 
+기존 버전의 파드를 그대로 둔 상태에서 새로운 버젼의 파드를 미리 생성해 둔 뒤 서비스의 라우팅만 변경하는 배포 방식 
+특정 순간에 두 버전의 애플리케이션이 공존 하지 않으며 , Recreate 전략 처럼 중단도 발생하지 않는 다는 장점 
+쿠버네티스가 자체적으로 지원하는 방식은 아님 
+
+1.  기존 버전(v1)의 디플로이먼특 생성돼 있으면 서비스는 사용자 요청을 v1 파드로 전달
+2. 새로운 버전(v2)의 디플로이먼트를 생성 
+3. 서비스의 라벨을 변경함으로써 서비스를 통한 요청이 새로운 버전의 디플로이먼트로 전달되도록 수정
+4. 새로운 버전의 디플로이먼트가 잘 동작하는 것을 확인했다면 기존 버전의 디플로이먼트 삭제 
+
+블루그린 배포를 사용하면 특정 순간에는 디플로이먼트에 설정된 replicas 개수의 두배에 해당하는 파드가 실행 되기 때문에 일시적으로 전체 자원을 많이 소모 
+
+# 파드의 생애 주기
+kubectl get pods 
+출력되는  STATUS 항목
+* Pending : 파드를 생성하는 요청이 API 서버에 의해 승인됐지만 , 문제로 인해 아직 실제로 생성되지 않은 상태 
+* Running : 파드에 포함된 컨테이너들이 모두 생성돼 파드가 정상적으로 실행된 상태 
+* Completed : 파드가 정상적으로 실행돼 종료됐음을 의미 - 컨테이너의 init 프로세스가 종료 코드로서 0 코드를 반환  
+* Error : 파드가 정상적으로 실행되지 않은 상태로 종료됐음을 의미  -컨테이너의 init 프로세스가 종료 코드로서 0이 아닌 종료 코드를 반환  
+* Terminating : 파드가 삭제 또는 Eviction 되기 위해 삭제 상태에 머물러 있는 경우에 해당 
+
+Completed 상태가 되는 파드 생성 - 생성 후 10초후 종료되나 restartPolicy 정책에 의해 다시 재시작 됨 
+restartPolicy 정책 종류 
+Always - 파드가 종료되면 재시작 
+Naver - 파드가 종료되면 다시 시작 하지 않음
+OnFailure  - 파드의 컨테이너가 실패했을 때 0이 아닌 종료 코드를 반환했을 때만 다시 재시작 
+
+* completed-pod.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: completed-pod-example
+spec:
+  containers:
+  - name: completed-pod-example
+    image: busybox
+    command: ["sh"]
+    args: ["-c", "sleep 10 && exit 0"]  
+
+* completed-pod-restart-never.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: completed-pod-restart-never
+spec:
+  restartPolicy: Never
+  containers:
+  - name: completed-pod-restart-never
+    image: busybox
+    command: ["sh"]
+    args: ["-c", "sleep 10 && exit 0"]
+
+* error-pod-restart-never.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: error-pod-restart-never
+spec:
+  restartPolicy: Never
+  containers:
+  - name: error-pod-restart-never
+    image: busybox
+    command: ["sh"]
+    args: ["-c", "sleep 10 && exit 1"]
+
+kubectl apply -f  
+kubectl get pod --watch 
+kubectl get pod 파드명 -o yaml | grep restartPolicy 
+  restartPolicy : Always  
+
+파드가 종료될 때마다 즉시 재시작 하는 것은 아님 
+파드가 재시작 하는 과정을 보면 CrashLoopBackOff라는 상태가 보밈 
+쿠버네티스는 어떠한 작업이 잘못돼 실패 했을때 일정 간격을 두고 해당 작업을 재 시도 
+실패하는 횟수가 늘어날수록 재시도 하는 간격이 지수 형태로 증가  , 그 중간 상태가 바로 CrashLoopBackOff 상태 
+
+# Running 상태가 되기 위한 조건 
+파드를 생성했다고 해서 무조건 Running 상태가 되는 것은 아닐 뿐더라 파드가 Running 상태에 머물러 있다고 해서 컨테이너 내부이 애플리케이션이 정상 동작하고 있을 것이라는 보장은 없음 
+이를 위해 쿠버네티스는 다음과 같은 기능을 제공 
+* Init Container 
+* postStart
+* livenessProbe, readinessProbe 
+
+1) Init Container 
+Inint Container는 파드의 컨테이너 내부에서 애플리케이션이 실행되기 전에 초기화를 수행하는 컨테이너 
+파드의 애플리케이션 컨테이너보다 먼저 실행 됨 - 파드의 애플리케이션 컨테이너가 실행되기 전에 특정 작업을 수행하는 용도로 사용 가능 
+1개 이상의  Init 컨테이너를 정의한 경우 순서대로 실행 
+*  init-container-example.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-container-example
+spec:
+  initContainers: # 초기화 컨테이너를 이 항목에 정의합니다.
+  - name: my-init-container
+    image: busybox
+    command: ["sh", "-c", "echo Hello World!"]
+  containers: # 애플리케이션 컨테이너를 이 항목에 정의합니다.
+  - name: nginx
+    image: nginx
+
+Init 컨테이너가 하나라도 실패하게 된다면 파드의 애플리케이션 컨테이너는 실행되지 않음 파드의 restartPolicy 에 따라서 Init 컨테이너가 다시 재시작 
+이러한 성질을 이용해 Init 컨테이너 내부에서 dig나 nslookup 명령어 등을 이용해 다른 디플로이먼트가 생성되기를 기다리거나 , 애플리케이션 컨테이너가 사용할 설정 파일등을 미리 준비 가능 
+
+다른 서비스 또는 디플로이먼트가 생성될 때가지 Init 컨테이너에서 대기하는 예시 
+* init-container-usecase.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-container-usecase
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+  initContainers:
+  - name: wait-other-service
+    image: busybox
+    command: ['sh', '-c', 'until nslookup myservice; do echo waiting..; sleep 1; done;'] 
+
+Init 컨테이너 로그는 kubectl logs <파드 이름> -c <컨테이너 이름> 으로 확인 
+
+2) postStart 
+파드의 컨테이너가 실행되거나 삭제될 때 , 특정 작업을 수행하도록 라이프사이클 훅(Hook)을 YAML 파일에 정의 할 수 있음 
+Hook에는 두가지 종류 시작시 실행 되는 postStart 종료시 실행되는 preStop 
+
+postStart는 두가지 방식으로 사용할 수 있음 
+* HTTP : 컨테이너가 시작한 직후, 특정 주소로 HTTP 요청을 전송 
+* Exed : 컨테이너가 시작한 직후, 컨테이너 내부에서 특정 명령어를 실행 
+
+* poststart-hook.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: poststart-hook
+spec:
+  containers:
+  - name: poststart-hook
+    image: nginx
+    lifecycle:
+      postStart:
+        exec:
+          command: ["sh", "-c", "touch /myfile"]
+
+postStart 의 명령어나 HTTP  요청이 제대로 실행되지 않으면 컨테이너는 Running  상태로 전환 되지 않으며  restartPolicy에 의해 재시작 
+postStart 에 의한 실행 로그는 에러가 발생하지 않는 한 별도로 확인 불가 
+
+3)  livenessProbe, readinessProbe , startupProbe - 애플리케이션 상태 검사 
+Init Container , postStart 훅이 정상적으로 실행됐다고 해서 애플리케이션이 제대로 동작하고 있다는 보장은 없음 
+쿠버네티스에서는 애플리케이션이 사용자의 요청을 처리할 수 있는 상태인지를 판별 하기 위해 
+livenessProbe, readinessProbe , startupProbe  세가지 방법을 제공  - Running 상태가 되기 위한 필수 조건은 아니지만 파드 내부의 애플리케이션의 상태를 확인하기 위해 사용 
+
+livenessProbe : 컨테이너 내부의 애플리케이션이 살아 있는지 검사 , 실패할 경우 해당 컨테이너는 restartPolicy에 따라 재시작 됨 
+readinessProbe : 컨테이너 내부의 애플리케이션이 사용자 요청을 처리할 준비가 됐는지 검사 , 실패할 경우 컨테이너는 서비스의 라우팅 대상에서 제외 
+startupProbe: 애플리케이션이 시작될때 수행되는 초기화 작업 등이 완료되었는지 확인 startupProbe  검사에 성공해야 livenessProbe, readinessProbe 가 시작 , 실패할 경우 해당 컨테이너는 restartPolicy에 따라 재시작 됨 
+
+3가지 방법중 하나로 검사 
+* httpGet : HTTP 요청을 전송해 상태 검사, 요청 코드가 200, 300 계열이 아닌 경우 검사 실패 한것으로 간주 요청을 보낼 포트와 경로 헤더 HTTPS 사용 여부 등 추가 설정 가능 
+* exec : 컨테이너 내부에서 명령어를 실행해 상태 검사 명령어의 종료 코드가 0이 아닌 경우 검사 살패 로 간주 
+* tcpSocket : TCP 연결이 수립될수 있는지 체크 , 연결이 생성될 수 없는 경우에 실패로 간주  
+
+* livenessProbe로 애플리케이션 상태 검사 
+* livenessprobe-pod.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: livenessprobe-pod
+spec:
+  containers:
+  - name: livenessprobe-pod
+    image: nginx
+    livenessProbe:  # 이 컨테이너에 대해 livenessProbe를 정의합니다.
+      httpGet:      # HTTP 요청을 통해 애플리케이션의 상태를 검사합니다.
+        port: 80    # <포드의 IP>:80/ 경로를 통해 헬스 체크 요청을 보냅니다.
+        path: /
+
+* readinessProbe로 애플리케이션 상태 검사 
+* readlinessprobe-pod-svc.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: readinessprobe-pod
+  labels:
+    my-readinessprobe: test
+spec:
+  containers:
+  - name: readinessprobe-pod
+    image: nginx       # Nginx 서버 컨테이너를 생성합니다.
+    readinessProbe:    # <포드의 IP>:80/ 로 상태 검사 요청을 전송합니다.
+      httpGet:
+        port: 80
+        path: /
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: readinessprobe-svc
+spec:
+  ports:
+    - name: nginx
+      port: 80
+      targetPort: 80
+  selector:
+    my-readinessprobe: test
+  type: ClusterIP
+
+  애플리케이션에 readinessProbe를 적용하기 어렵거나 초기화 시간이 어느정도 필요한 경우에는 디플로이먼트에서 minRedySeconds를 사용 최소 대기 시간을 의미 
+
+  * livenessProbe, readinessProbe 세부 옵션
+  - periodSeconds : 상태 검사를 진행할 주기를 설정 기본값은 10초 
+  - initialDelaySeconds : 파드가 생성된 뒤 상태 검사를 시작할 때까지의 대기 시간을 설정 기본적으로 설정되 있지 않음 
+  - timeoutSeconds : 요청에 대한 타임 아웃 시간을 설정 기본값 1초 
+  - successThreshold: 상태 검사를 성공했다고 간주할 검사 성공 횟수를 설정 기본값 1
+  - failureThreshold : 상태 검사를 실패했다고 간주할 검사 실패 횟수를 설정 기본값 3 
+
+  * probe-options.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-options-example
+  labels:
+    my-readinessprobe: test
+spec:
+  containers:
+  - name: probe-options-example
+    image: nginx
+    readinessProbe:
+      httpGet:
+        port: 80
+        path: /
+      periodSeconds: 5
+      initialDelaySeconds: 10
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+
+# Terminating 상태와 애플리케이션 종료 
+kubectl delete 명령어로 파드 삭제 시 진행 프로세스 
+1.  리소스가 삭제될 예정이라는 의미의 deletionTimestamp 값이 파드의 데이터에 추가 되고 파드는 Terminating 상태로 바뀜 
+2. 아래 3가지 작업이 동시이 진행
+   2.1 파드에 preStop  라이프 사이클 훅이 설정돼 있다면 preStop이 실행
+   2.2 파드가 레프리카셋으로부터 생성된 경우 해당 파드는 레플리카셋의 관리 영역에서 해제 레플리카셋은 새로운 파드를 생성하려고 시도 
+   2.3 파드가 서비스 리소스의 라우팅 대상에서 제외 
+3. preStop 훅이 완료되면 리눅스 시그널 중 SIGTERM 이 파드의 컨테이너에 전달 컨테이너의 Init 프로세스는 SIGTERM 수신한 뒤 종료돼야 함 
+4. 특정 유예 기간이 지나도 컨테이너 내부의 프로세스가 여전히 종료되지 않으면 프로세스로 SIGKILL 시그널이 전달 
+    유예 기간은 기본적으로 30초 , 파드의 terminationGracePeriodSenconds 항목을 통해 설정 가능 
+
+* prestop-hook.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: prestop-hook
+spec:
+  containers:
+  - name: prestop-hook
+    image: nginx
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/usr/sbin/nginx","-s","quit"]
+
+* termination-grace-period-seconds.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: termination-grace-period-seconds
+spec:
+  terminationGracePeriodSeconds: 10
+  containers:
+  - name: termination-grace-period-seconds
+    image: nginx
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/usr/sbin/nginx","-s","quit"]
+
+# HPA를 활용한 오토스케일링 
+쿠버네티스에서는 리소스 사용량에 따라 디플로이먼트의 파드 개수를 자동으로 조절하는 HPA(Horizontal Pod Autoscaler) 라는 기능 제공 
+내장되어 있는 기능이긴 하지만 metrics-server라고 하는 별도의 리소스 메트릭 수집 도구를 설치해야만 오토스케일링 기능을 정상적으로 사용 가능
+
+* simple-hpa.yaml 
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: simple-hpa
+spec: 
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hostname-deployment       #  simple-deployment의 자원 사용량에서 
+ targetCPUUtilizationPercentage: 50 # CPU 활용률이 50% 이상인 경우 
+ maxReplicas: 5                                  # 파드를 최대 5개까지 늘림
+ minReplicas: 1                                   # 또는 최소 1개까지 줄일수 있음 
 
 ########################################################
 ##  커스텀 리소스와 컨트롤러 
