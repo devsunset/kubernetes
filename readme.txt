@@ -3846,31 +3846,13 @@ kubectl top pod
 쿠버네티스는 여러 개의 노드로 구성돼 있기 때문에 쉡게 매트릭을 확인할 수는 없음 
 클러스터 내부의 매트릭을 모아서 제공하는 별도의 무어인가가 필요  metrics-server 가 바로 그역활을 담당 
 
-
+### book 내용 참고 ###
 # metrics-server 설치 
-1, metrics-serve 설치에 필요한 YAML 파일 공식 깃허브 저장소에서 제공 
-wget https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.6.1/components.yaml
-
-2, 다운로드 한 파일에서 args 항목에 - --kubelet-insecure-tls 추가 
-containers:
-  - args:
-    - --cert-dir=/tmp
-    - --secure-port=4443
-    - --kubelet-insecure-tls
-
-3. kubectl apply -f components.yaml
-4. 설치확인 
-kubectl get po -n kube-system | grep metrics-server
-kubectl top po -n kube-system
-kubectl top no 
-
 # metrics-server 동작 원리 : APIServices 리소스 
-
-
-
-
-
-
+# kube-state-metrics 
+# node-exporter 
+# 프로메테우슬르 활용한 메트릭 수집 
+# 그라파나로 프로메테우스 메트릭 시각화 하기 
 
 ########################################################
 ##  유용한 강좌
