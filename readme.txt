@@ -3583,6 +3583,228 @@ CRD로부터 커스텀 리소스를 생성했다고 하더라도 이것만으로
 ########################################################
 ##  파드를 사용하는 다른 오브젝트들
 
+# Job
+특정 동작을 수행하고 종료해야 하는 작업을 위한 오브젝트 
+- 디플로이먼트와 같지만 잡에서 원하는 최종 상태는 특정개수의 파드가 실행 중인 것이 아닌 파드가 실행되어 정상적으로 종료되는 것 점에서 차이 
+   잡에서는 파드의 컨테이너가 종료 코드로서 0을 반환해 Completed 상태가 되는 것을 목표 
+잡에서 생성된 파드는 항상 실행 중인 것을 목료포 하지 않기 때문에 잡오브젝트를 어디에 사용할 지 의문 
+사용자의 요청을 처리하는 서버와 같은 애플리케이션 관점이 아닌 한번 수행하고 종료되는 배치 작업을 위한 관점에서 보면 사용성 있음 
+잡의 파드가 실패함녀 파드가 restartPolicy에 따라 재시작될 수도 있어서 잡이 처리하는 작업은 멱등성을 가지는 것이 좋음 
+
+* job-hello-world.yaml 
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-hello-world
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - image: busybox
+        args: ["sh", "-c", "echo Hello, World && exit 0"]
+        name: job-hello-world
+
+# 잡의 세부 옵션 
+* spec.completions : 잡이 성공했다고 여겨지려면 몇 개의 파드가 성공해야 하는지(정상적으로 종료) 설정 기본값은 1
+* spec.parallelism : 동시에 생성될 파드의 개수를 설정 기본값은 1
+
+* job-completions.yaml 
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-completions
+spec:
+  completions: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - image: busybox
+        args: ["sh", "-c", "echo Hello, World && exit 0"]
+        name: job-completions
+
+잡의 파드가 실패한다면 restartPolicy에 따라 파드가 다시 재시작 되거나(OnFailure) , 새로운 파드를 다시 생성해 똑같은 작업을 다시 시도(Never)
+파드가 실패하면 기본적으로는 최대 6번을 다시 시도 - 최대 재시도 횟수는 spec.backoffLimit 값에 별도로 설정 가능 
+
+* job-parallelism.yaml 
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-parallelism
+spec:
+  parallelism: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - image: busybox
+        args: ["sh", "-c", "echo Hello, World && exit 0"]
+        name: job-parallelism
+        
+spec.completion  과 spec.parallelism을 함께 사용하면 잡의 수행 속도를 조절 할 수 있음 
+
+# CronJobs로 잡을 주기적으로 실행하기 
+CronJob은 잡을 주기저그로 실행하는 쿠버네티스 오브젝트 
+특정 시간 간격으로 잡을 반복으로 실행할 수 있기 때문에 데이터 백업이나 이메일 전송 등의 용도에 적합 
+리눅스에서 쓰이는 Cron 스케줄 방법을 그대로 사용 
+
+* cronjob-example-k8s-latest.yaml 
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-example
+spec:
+  schedule: "*/1 * * * *"        # Job의 실행 주기
+  jobTemplate:                 # 실행될 Job의 설정 내용 (spec)
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: cronjob-example
+            image: busybox
+            args: ["sh", "-c", "date"]
+
+기본적으로 성공한 잡의 기록은 최대 3개 , 실패한 잡의 기록은 최대 1개 까지만 기록 하도록 설정 되어 있음
+이 값은 YAML 파일에서 각각 spec.successfulJobsHistoryLimit 및 spec,failedJobsHistoryLimit 값으로 설정 변경 가능 
+
+# DaemonSets 
+모든 노드에 동일한 파드를 하나씩 생성하는 오브젝트 
+로깅, 모니터링, 네트워킹 등을 위한 에이전트를 각 노드에 생성해야 할 때 유용 
+
+* daemonset-example.yaml 
+apiVersion: apps/v1
+kind: DaemonSet                           # [1]
+metadata:
+  name: daemonset-example
+spec:
+  selector:
+    matchLabels:
+      name: my-daemonset-example         # [2.1] 포드를 생성하기 위한 셀렉터 설정
+  template:
+    metadata:                              # [2.2] 포드 라벨 설정
+      labels:
+        name: my-daemonset-example
+    spec:
+      tolerations:                           # [3] 마스터 노드에도 포드를 생성
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      containers:
+      - name: daemonset-example
+        image: busybox                      # 테스트를 위해 busybox 이미지 사용
+        args: ["tail", "-f", "/dev/null"]
+        resources:                           # [4] 자원 할당량을 제한
+          limits:
+            cpu: 100m
+            memory: 200Mi
+
+ 데몬셋의 목적은 노드마다 파드를 하나씩 생성하는 것이기 때문에 노드에 장애가 발생했을 때에도 파드가 다른 노드로 Eviction 되지 않아야 함
+ - 이를 위해서 데몬셋의 파드에는 다양한 Toleration이 기본적으로 설정돼 있음 
+
+ # StatefulSets 
+상태를 갖는 파드를 관리 하기 위한 오브젝트 
+
+* statefulset-example.yaml 
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: statefulset-example
+spec:
+  serviceName: statefulset-service
+  selector:
+    matchLabels:
+      name: statefulset-example
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        name: statefulset-example
+    spec:
+      containers:
+      - name: statefulset-example
+        image: alicek106/rr-test:echo-hostname
+        ports:
+        - containerPort: 80
+          name: web
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: statefulset-service
+spec:
+  ports:
+    - port: 80
+      name: web
+  clusterIP: None
+  selector:
+    name: statefulset-example
+
+kubectl apply -f statefulset-example.yaml
+kubectl get statefulset or sts 
+kubectl get pods 
+디플로이먼트에서 생성된 파드는 랜덤한 이름이 붙여지지만 스테이트풀셋으로 부터 생성된 파드들 이름에는 0, 1, 2...  처럼 숫자가 붙어 있음 
+스테이트플셋에서는 이처럼 파드 이름에 붙여지는 숫자를 통해 각 파드를 고유하게 식별 
+
+스테이트풀셋의 각 파드는 고유하게 식별돼야 하며 파드에 접근할 때에도 랜덤한 파드가 아닌 개별 파드에 접근해야 함 
+이러한 경우 일반적인 서비스가 아닌 헤드리스 서비스(Headless Service) 를 사용할 수 있음
+헤드리스 서비스는 서비스의 이름으로 파드의 접근 위치를 알아내기 위해서 사용 되면 서비스의 이름과 파드의 이름을 통해서 파드에 접근 할 수 있음 
+clusterIP 항목이 None으로 돼있는데 이것이 헤드리스 서비스라는 것을 의미 
+
+스테이드풀셋에서 replicas 값을 여러 개로 설정해 생성할 경우 기본적으로 0번 파드부터 차례대로 생성 되며 이전 번호의 파드가 완전히 
+준비돼야만 다음 번호의 파드가 생성됨 - 이 설정은 YAML  파일의 spec.podManagementPolicy  항목에서 변경 가능 
+
+# 스테이트풀셋과 퍼시스턴트 볼륨 
+쿠버네티스는 스테이트풀렛을 생성할 때 파드마다 퍼시스턴트 볼륨 클레임을 자동으로 생성함 - 다이나믹 프로비저닝 기능을 사용할 수 있게 지원 
+
+* statefulset-volume.yaml 
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: statefulset-volume
+spec:
+  serviceName: statefulset-volume-service
+  selector:
+    matchLabels:
+      name: statefulset-volume-example
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        name: statefulset-volume-example
+    spec:
+      containers:
+      - name: statefulset-volume-example
+        image: alicek106/rr-test:echo-hostname
+        ports:
+        - containerPort: 80
+          name: web
+        volumeMounts:
+        - name: webserver-files
+          mountPath: /var/www/html/
+  volumeClaimTemplates:
+  - metadata:
+      name: webserver-files
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: generic
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: statefulset-volume-service
+spec:
+  ports:
+    - port: 80
+      name: web
+  clusterIP: None
+  selector:
+    name: statefulset-volume-example
+
+  
 
 
 ########################################################
