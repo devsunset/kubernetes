@@ -347,7 +347,7 @@ kubectl explain 오브젝트
   마스터노드 
     API  서버 (kube-apiserver)
     컨트롤러 매니저 (kube-controller-manager)
-    스케쥴러(kube-scheduler)
+    스케줄러(kube-scheduler)
     DNS서버(coreDNS)
     프락시(kube-proxy)
     네트워크 플러그인(calico, flannel)
@@ -1393,7 +1393,7 @@ kubectl exec -it hostpath-pod touch /etc/data/mydata
 ls /tmp/mydata
 
 디플로이먼트 파드에 장애가 생겨 다른 노드로 파드가 옮겨갔을 경우 , 이전 노드에 저장된 데이타를 사용할 수 없음 
-스케쥴링을 이용해 특정 노드에만 파드를 배치하는 방법도 있지만 호스트 서버에 장애가 생기면 데이터를 읽게 되는 단점 
+스케줄링을 이용해 특정 노드에만 파드를 배치하는 방법도 있지만 호스트 서버에 장애가 생기면 데이터를 읽게 되는 단점 
 hostPath 볼륨은 모든 노드에 배치해야 하는 특수한 파드의 경우에 유용 
 
 # 파드 내의 컨테이너 간 임시 데이터 공유 : emptyDir 
@@ -2056,7 +2056,7 @@ except client.rest.ApiException as e:
  디플로이먼트 , 파드 YAML 파일에 정의 하지 않아도 됨 
 ex) registry-auth 라는 이름의 시크릿이 존재 한다면 아래 처럼 작성 
  * sa-reg-auth.yaml 
- apiVersion: v1
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: reg-auth-alicek106
@@ -2532,10 +2532,369 @@ ServiceAccount, ResouceQuota, LimitRange 어드미션 컨트롤러의 한 종류
 API 요청을 검사하는 것을 검증 (Validating) 단계 , API 요청을 적절히 수정하는 것을 변형(Mutating) 단계 라고 함 
 - 필요하다면  어드미션 컨트롤러를 직접 구현해 쿠버네티스에 등록 가능 
 
+# 쿠버네티스 스케줄링 
+컨테이너가 가상 머신과 같은 인스턴스를 새롭게 생성할 때 그 인스턴스를 어느 서버에 생성할 것일지 결정하는 일 
 
+* 파드가 노드에 생성되는 절차 
+1. ServiceAccount, RoleBinding 등의 기능을 이용해 파드 생성을 요청한 사용자의 인증 및 인가 작업을 수행 
+2. ResouceQuota, LimitRange와 같은 어드미션 컨트롤러가 해당 파드 요청을 적절히 변형(Mutable) 하거나 검증(Vaildate)
+3. 어드미션 컨트롤러의 검증을 통과해 최종적으로 파드 생성이 승인 됬다면 쿠버네티스는 해당 파드를 워커 노드 중 한곳에 생성 
 
+스케줄링은 3번 단계에서 수행됨 
+kubectl get pods -n kube-system 
+eted는 분산 코디네이터(Distributed Coordinator) 라고 불리는 도구의 일종으로 클라우드 플랫폼 등의 환경에서 여러 컴포넌트가 정상적으로 상호 작용할 수 있도록 데이터를 조정하는 역활을 담당 
+디플로이먼트나 파드의 목록과 정보, 클러스터 자체의 정보 등과 같은 대부분의 데이터가 etcd에 저장 
+etcd에 저장된 데이타는 무조건 API 서버(kube-apiserver)를 통해서만 접근 
+etcd에 저장된 파드의 데이터에는 해당 파드가 어느 워커 노드에서 실행되는 지를 나타내는 nodeName 항목이 존재 
+kubectl get pods mypod -o yaml | grep -F3 nodeName
+인증 ,인가, 어드미션 컨트롤러 등의 단계를 모두 거쳐 파드 생성 요청이 최종적으로 승인됐다면 API 서븐ㄴ etcd 에 파드 데이터를 저장 하지만 nodeName은 설정되지 않은 상태로 저장됨 
+kube-scheduler는 API 서버의 Watch를 통해 nodeName이 비어 있는 파드 데이터가 저장됬다는 사실을 전달 받고 스케줄링 대상으로 판단  파드를 할당할 적절한 노드를 선택한 다음 
+API 서버에게 해당 노드의 파드를 바인딩할 것을 요청  그러고 나면 파드의 nodeName항목의 값에는 선택된 노드의 이름이 설정 됨 
 
+# 파드가 생성될 노드를 선택하는 스케줄링 과정 
+노드 필터링 , 노드 스코어링 단계를 거쳐 최종적으로 노드를 선택
+* 노드 필터링 : 파드를 할당할 수 잇는 노드와 그렇지 않은 노드를 걸러내는 단계 
+* 노드 스코어링 : 쿠버네티스의 소스코드에 미리 정의된 알고리즘의 가중치에 따라서 노드의 점수를 계산 , 가장 점수가 높은 노드를 최종적으로 선택 
+노드 스코어링은 내장된 로직에  의해 계산되기 때문에 직접 점수를 매기는 알고리즘을 수정하는 경우는 많지 않음 
+대부분 스케줄링 조건을 파드의 YAML 파일에 설정함으로써 노드 필터링 단계에 적용할 수 있도록 구성하는 것이 일반적 
 
+# nodeName과 nodeSelector를 사용한 스케줄링 방법 
+ 특정 워커 노드에 파드를 할당하는 가장 확실한 방법은 파드의 YAML 파일에 노드의 이름을 직접 명시 
+ 노드의 이름을 고정으로 설정했기 때문에 다른 환경에서 YAML 파일을 보편적으로 사용하기 어려움 노드에 장애 발생시 대처 힘듬 
+ kubectl get nodes 
+ 출력된 노드중에 pod 설치할 node명을  yaml파일에 명시 
+ * nodename-nigin.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+spec:
+  nodeName: <워커 노드 nodeName> 
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+# 노드의 라벨을 사용 하는 방법 - 라벨을 이용하면 특정 라벨이 존재하는 노드에만 파드를 할당 
+노드의 라벨은 쿠버네티스가 자동으로 설정해 놓은 것도 있지만 필요에 따라 직접 라벨을 추가 할 수 있음 
+kubectl get nodes --show-labels
+미리 설정된 라벨들은 대부분 kubernetes.io/ 라는 접두어로 시작 
+기본적으로 설정되는 라벨에는 해당노드의 OS , CPU , 호스트 이름 등이 있음 
+
+노드에 라벨 추가 
+kubectl label nodes <노드이름> <추가할라벨>
+kubectl label nodes node-1 myalbel/disk=hdd
+노드에 설정된 라벨 삭제 
+라벨 키의 이름에 대시를 추가 하면 됨 
+kubectl label nodes node-1 myalbel/disk=hdd-
+
+mylabel/disk 값이 hdd인 노드에 파드를 할당하려면 YAML nodeSelector를 정의 
+* nodeselector-nginx.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-nodeselector
+spec:
+  nodeSelector:
+    mylabel/disk: hdd
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+myalbel/disk=hdd 라벨을 갖는 노드가 2개 라면 둘중 하나에 생성 됨 
+적어도 노드의 이름에 종속적이 않게 YAML 파일 작성 가능 
+
+위와 같으 파드 스케줄링 방법은 단일 파드에 대해 수행된다는 점 
+아래 처럼 생성시 디플로이먼트의 모든 파드가 동일한 하나의 노드에 할당되는 것은 아니라는 뜻 
+* deployment-nginx-node-selector.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: deployment-nginx
+  template:
+    metadata:
+      name: deployment-nginx
+      labels:
+        app: deployment-nginx
+    spec:
+      nodeSelector:
+        mylabel/disk: hdd
+      containers:
+      - name: deployment-nginx
+        image: nginx:latest
+
+# Node Affinity를 이용한 스케줄링 방법 
+nodeSelector 에서 좀더 확장된 라벨 선택 기능을 제공 하며 , 반드시 충족해야하는 조건 (Hard), 선호하는 조건(Soft)을 별도로 정의 
+
+Node Affinity 2가지 종류의 옵션
+* requiredDuringSchedulingIgnoredDuringExecution ( 반드시 만족해야만 하는 제약 조건 )
+* preferredDuringSchedulingIgnoredDuringExecution ( 반드시 만족해야 할 필요는 없으며 해당 조건을 만족하는 노드가 있다면 그 노느를 좀더 선호 하겠다는 조건 )
+
+* nodeaffinity-required.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-nodeaffinity-required
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: mylabel/disk
+            operator: In          # values의 값 중 하나만 만족하면 됩니다.
+            values:
+            - ssd
+            - hdd
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+  "operator: In" 항목은  key의 라벨이 values의  값 중 하나를 만족하는 노드에 파드를 스케줄링 한다는 뜻 
+  operator 에는 In , NotIn, Exists, DoesNotExist, Gt(값이 큼), Lt(값이 작음) 조건을 사용할 수 있어 nodeSelector보다 다양하게 활용 가능 
+
+* nodeaffinity-preferred.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-nodeaffinity-preferred
+spec:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 80               # 조건을 만족하는 노드에 1~100까지의 가중치를 부여 (조건에 해당하는 노드를 얼마나 더 선호할 지를 나타내는 가중치)
+        preference:
+          matchExpressions:
+          - key: mylabel/disk
+            operator: In
+            values:
+            - ssd
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+이러한 스케줄링 조건은 파드를 할당할 당시에만 유효 
+파드가 할당된 뒤에 노드의 라벨이 변경되더라도 다른 노드로 파드가 옮겨지는 퇴거(Eviction)가 발생 하지는 않음 
+
+# Pod Affinity를 이용한 스케줄링 방법 
+ Node Affinity가 특정 조건을 만족하는 노드를 선택하는 방법이라면 Pod Affinity는 특정 조건을 만족하는 파드와 함께 실행 되도록 스케줄링 
+ 사용법은 Node Affinity와 같음 
+
+ * podaffinity-requird.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-podaffinity
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: mylabel/database
+            operator: In
+            values:
+            - mysql
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+  대부분의 항목은 Node Affinity를 사용했을 때와 같지만 nodeAffinity 대신 podAffinity 항목을 사용했다는 점이 다름 
+  위 YAML 파일은 mylabel/database=mysql 이라는 라벨을 가지는 파드와 함께 위치하도록 스케줄링 하라는 뜻 
+  이 라베을 가지는 파드와 무조건 같은 노드에 할당 하라는 뜻은 아님 topologyKey 항목은 해당 라벨을 가지는 토플로지 범위의 노드를 선택 한다는 것을 의미 
+  대표적인 활용 용도로는 응답 시간을 최대한 줄여야 하는 두 개의 파드를 동일한 가용 영역(AZ : Available Zone) 또는 리전(Region)의 노드에 할당하는 경우 
+
+topologyKey를 호스트 이름으로 설정 - 호스트 이름은 고유하기 때문에 두개 이상의 노드가 존재 할 수 없음 이는 곧 하나의 노드가 하나의 토플로지에 대응 된다는 것을 의미 
+따라서 스케줄러는 반드시 matchExpression을 만족하는 파드가 위치한 노드를 선택  
+ * podaffinity-hostname-topology.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-podaffinity-hostname
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: mylabel/database
+            operator: In
+            values:
+            - mysql
+        topologyKey: kubernetes.io/hostname
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+# Pod Anti-affinity를 이용한 스케줄링 방법 
+Pod Affinity와 반대로 동작  - 특정 파드와 같은 토플로지의 노드를 선택하지 않는 방법 
+이 원리를 잘 이용하면 고가용성을 보장하기 위해 파드를 여러 가용 영역 또는 리전에 멀리 퍼뜨리는 전략을 세울 수 있음 
+Pod Anti-affinity 사용 하는 방법은 이전에 활용한 YAML 에서 podAffinity 를 podAntiAffnity로 변경만 해주면 됨 
+
+ * pod-antiaffinity-requird.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod-antiaffinity
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: mylabel/database
+            operator: In
+            values:
+            - mysql
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+Pod Affinity와 Anti-affinity는 Node Affinity와 동일하게 소프트 제한을 사용할 수 있음 
+requiredDuringSchedulingIgnoredDuringExecution 을 사용하면 토플로지마다 반드시 하나의 파드만 할당하게 되지만
+preferredDuringSchedulingIgnoredDuringExecution을 사용하면 각 토플로지의 노드에 파드를 여러 개 할당 가능 
+
+* pod-antiaffinity-preferred.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod-antiaffinity-preferred
+spec:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: mylabel/database
+              operator: In
+              values:
+              - mysql
+          topologyKey: failure-domain.beta.kubernetes.io/zone
+        weight: 80
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+  이러한 원리를 조금만 더 활용하면 모든 노드에 파드를 하났기 할당하는 마치 데몬셋(DaemonSet)과 비슷한 디플로이먼트 생성할 수 있음 
+* deployment-exclusive.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: deployment-nginx
+  template:
+    metadata:
+      name: deployment-nginx
+      labels:
+        app: deployment-nginx
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+               matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - deployment-nginx
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: deployment-nginx
+        image: nginx:latest
+
+디플로이먼트의 각 파드에 설정된 라벨을 podAntiAffinity의 matchExpressions 조건에 다시 사용함으로써 디플로이먼트의 각 파드가 서로 다른 호스트 이름을 가지는 노드에 할당 
+
+# Taints와 Tolerations를 이용한 파드 스케줄링 
+Taints라는 이름이 의미하는 것처럼 특정 노드에 얼룩(Taint)을 지정함으로써 해당 노드에 파드가 할당 되는 것을 막는 기능 
+하지만 Taints 에 대응 하는 Tolerations를 파드에 설정하면 Taints가 설정된 노드에도 파드를 할당할 수 있음 
+노드에 얼룩(Taint)이 졌지만 이를 용인(Tolerations)할 수 있는 파드만 해당 노드에 할당
+
+Taints의 종류는 매우 다양 
+Taints를 노드에 별도로 설정할 수도 있고, 특정 이벤트로 인해 쿠버네티스가 자동으로 노드에 Taints를 설정하기도 함 
+kubectl 명령어로 직접 노드에 설정하거나 해제할 수 있음  라벨과 비슷하게 키=값 형태로 사용 라벨과 다른 점은 key=value 뒤에 effect 를 추가로 명시 
+Taint효과는 Taint가 노드에 설정됐을 때 어떠한 효과를 낼 것인지 결정 
+effect는 아래 3가지 종류 
+NoSchedule(파드를 스케줄링하지 않음)
+NoExecute(파드의 실행 자체를 허용하지 않음)
+PreferNoSchedule(가능하면 스케줄링하지 않음)
+
+ex) kubectl taint nodes nodename key=value:effect 
+삭제시 라벨과 마찬가지로 - 대시 를 뒤에 붙이면 됨
+ex) kubectl tain nodes nodename key:effect- 
+
+* toleration-test.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-toleration-test
+spec:
+  tolerations:
+  - key: alicek106/my-taint
+    value: dirty
+    operator: Equal          # alicek106/my-taint 키의 값이 dirty이며 (Equal)
+    effect: NoSchedule       # Taint 효과가 NoSchedule인 경우 해당 Taint를 용인합니다.
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+   위의 YAML 파일은 Taint를 용인할 수 있을 뿐 , 해당 Taint가 설정된 노드에 반드시 파드를 할당한다는 의미는 아님 
+
+   쿠버네티스는 기본적으로 다양한 Taint를 노드에 설정함 
+   대표적인 예로 마스터 노드에 기본적으로 설정된 Taint  쿠버네티스는 마스터 노드에 Taint를 설정함으로써 파드가 할당되는 것을 방지 
+   kubectl describe node <master 노드> 
+   Taints:             node-role.kubernetes.io/master:NoSchedule
+   Unschedulable:      false
+
+  Unschedulable 의 값이 false로 설정되어 있는데 이는  스케줄링의 대상이 되는 노드라는 것을 의미 
+  마스터 노드에 설정된 Taint는 키-값 형태가 아님 Taint는 기본적으로 키-값 형태를 가지지만 값을 생략해 사용 가능 값이 생략된 경우에는 "" 의 값을 가지는 거로 간주 
+  마스터 노드에 설정된 Taint 또한 Toleration을 이용해 용인 할 수 있음
+  ( 마스터 노드는 핵심 컴포넌트만 실행하는 것이 바람직 - kubectl get pods -n kube-system | grep api )
+  
+  * toleration-master.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-master-toleration
+spec:
+  tolerations:
+  - key: node-role.kubernetes.io/master
+    effect: NoSchedule
+    operator: Equal
+    value: ""
+  nodeSelector:
+    node-role.kubernetes.io/master: ""   # 마스터 노드에서도 파드가 생성되도록 지정합니다.
+  containers:
+  - name: nginx
+    image: nginx:latest
+
+API 서버 파드에는 :NoExecute라는 Toleration이 설정돼 있음  : Taint의 키 와 값이 무엇이든지 상관없이 모든 :NoExecute 종류의 Taint를 용인 할 수 있음을 의미) 
+Toleration에서 operator의 값은 Equal 외에도 Exists 사용 할 수 있음  Exists로 설정된 경우에는 Taint에 대한 와일드카드로서 동작 
+
+* 모든 종류의 Taint 용인
+  tolerations:
+   - operator: Exists
+
+* 키의 이름이 my-key인 모든 Taint에 대해 값에 상관없이 용인 
+  tolerations:
+   - key : my-key 
+    operator: Exists
+
+* 키의 이름이 my-key 이고 , Taint 효과가 NoExecute인 Taint에 대해 값에 상관없이 용인 
+  tolerations:
+   - key : my-key 
+    effect : NoExecute 
+    operator: Exists
 
 
 ########################################################
@@ -2564,4 +2923,5 @@ API 요청을 검사하는 것을 검증 (Validating) 단계 , API 요청을 적
     
 
     
+
 
