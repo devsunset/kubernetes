@@ -2914,7 +2914,129 @@ kubectl describe pod <파드이름> 명령어로 확인할 수 있음
 Tolerations :  node.kubenetes.io/not-ready:NoExecute for 300s
                       node.kubernetes.io/unreachable:NoExecute for 300s
 
-# 
+# cordon을 이용한 스케줄링 비활성화 
+cordon : 쿠버네티스에서 제공하는 명시적인 노드에 스케줄링 막는 처리 - 새로운 파드가 할당 되지 않음 
+kubectl get nodes 명령어로 노드의 상태를 확인해 보면 STATUS 항목에 SchedulingDisabled 가 추가됨 
+노드에 cordon 명령어를 사용하더라도 해당 노드에서 이미 실행 중인 파드가 종료 되지는 않음 
+
+kubectl cordon <노드 이름>
+cordon을 해제하려면 uncordon 명령어를 사용
+kubectl uncordon <노드 이름> 
+
+# drain 명령어로 노드 비활성화하기 
+cordon 처럼 해당 노드에 스케줄링 금지 하는 것은 동일 하지만 노드에서 기존에 실행 중이던 파드를 다른 노드로 Eviction을 수행 
+- 커널 버전 업그레이드 , 유지 보수 등의 이유로 인해 잠시 노드를 중지해야 할 때 유용 
+
+kubectl drain <노드 이름>
+kubectl drain <노드 이름> --ignore-daemonsets 
+
+디플로이먼트나 레플리카셋 , 잡 , 스테이트플셋 등에 의해 생성되지 않은 파드가 노드에 존재할때 drain 명령어 실패 - 다른 노드로 옮겨가 다시 생성되지 않기 때문
+단일 파드를 무시하고 노드를 drain 하려면 --force  옵션을 함께 사용 
+
+# PodDisruptionBudget으로 파드 개수 유지하기 
+drain 명령어 실행하면 Eviction 처리 되면서 다른 노드로 옮겨가 파드가 생성 되게 되는데 그 사이 서비스가 중단 되거나 일시적으로 전체 처리 량이 감소 하는 상황이 발생 
+이러한 상황에 대처하기 위해 PodDisruptionBudget 이라는 기능을 제공 
+Eviction 발생할 때 특정 개수 또는 비율만큼의 파드는 반드시 정상적인 상태를 유지 하기 위해 사용 
+kubectl get poddistruptionbudgets or pub 
+
+* simple-pub-example.yaml 
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: simple-pdb-example
+spec:
+maxUnavailable: 1        # 비활성화될 수 있는 포드의 최대 갯수 또는 비율 (%) - drain 수행시 한번에 몇개 까지 동시에 종료 될 것인지 설정 숫자로 표시하거나 %로 설정 가능 
+  # minAvailable: 2       # 최소 몇개의 파드가 정상을 유지 할지 설정   maxUnavailable , minAvailable  맥락이 비슷하기 때문에 둘중 하나만 설정해야 함 
+  selector:                     # PDB의 대상이 될 파드를 선택하는 라벨 셀렉터
+    matchLabels:
+      app: webserver
+
+# 커스텀 스케줄러 구현 
+1. 기본 스케줄러가 아닌 커스텀 스케줄러로 파드를 스케줄링 하고 싶다면 파드를 생성할때 schedulerName의 값을 별도로 명시 
+* custom-scheduled-pod.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: custom-scheduled-pod
+spec:
+  schedulerName: my-custom-scheduler
+  containers:
+  - name: nginx-container
+    image: nginx
+
+=======================================
+2. 스케줄러 직접 구현 - python 작성 예시 
+특별한 경우 아니면 기본 스케줄러 사용하는게 바람직 
+=======================================
+import random
+import json
+from kubernetes import client, config, watch
+
+# 이 스케줄러가 담당할 스케줄러 이름을 지정합니다.
+scheduler_name = "my-custom-scheduler"
+
+# 이 스케줄러가 스케줄링할 포드의 네임스페이스를 지정합니다. 필요에 따라 전역적으로 사용할 수도 있습니다.
+namespace_name = "default"
+
+# 포드 내부에 마운트되어 있는 secret을 읽어옵니다.
+config.load_incluster_config()
+v1 = client.CoreV1Api()
+
+
+# 테스트를 위해 랜덤하게 노드를 선택합니다. 별도의 스케줄링 알고리즘을 이 함수에서 구현할 수 있습니다.
+def select_node():
+    available_nodes = []
+    for node in v1.list_node().items:
+        for status in node.status.conditions:
+            if status.status == "True" and status.type == "Ready":
+                available_nodes.append(node.metadata.name)
+
+    selected_node = random.choice(available_nodes)
+    return selected_node
+
+
+# 포드를 특정 노드에 바인딩합니다.
+def schedule_pod(pod_name, node_name):
+    body = client.V1Binding(
+        target=client.V1ObjectReference(
+            kind="Node",
+            api_version="v1",
+            name=node_name
+        ),
+        metadata=client.V1ObjectMeta(
+            name=pod_name
+        )
+    )
+
+    # From issue https://github.com/kubernetes-client/python/issues/547
+    try:
+        v1.create_namespaced_binding(namespace=namespace_name, body=body)
+    except ValueError:
+        pass
+
+    print("Scheduled {} into {}".format(pod_name, node_name))
+
+if __name__ == '__main__':
+    # API 서버로부터 Watch를 생성합니다.
+    w = watch.Watch()
+
+    # Watch로부터 데이터가 들어오면 스케줄링을 실행합니다.
+    for event in w.stream(v1.list_namespaced_pod, namespace_name):
+        if event['object'].status.phase == "Pending" and event['object'].spec.scheduler_name == scheduler_name:
+            try:
+                # 적절한 노드를 선택합니다.
+                selected_node = select_node()
+
+                # 포드를 해당 노드에 스케줄링합니다.
+                result = schedule_pod(event['object'].metadata.name, selected_node)
+            except Exception as e:
+                print(json.loads(e.body)['message'])    
+=======================================
+
+
+
+
+
 
    
 
