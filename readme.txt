@@ -3804,11 +3804,70 @@ spec:
   selector:
     name: statefulset-volume-example
 
-  
-
-
 ########################################################
 ##  쿠버네티스 모니터링 
+
+Prometheus  : 성능, 사용성 및 다른 도구와의 호환성 등 여러 측면에서 우수하다고 평가되는 시계열 데이타베이스 
+Grafana : 데이타베이스에 수집된 데이터를 시각화 
+AlertManager  : 슬랙 알림 전송 
+
+유료 모니터링 시스템 :  Datadog, New Relic , AWS CloudWatch 
+
+# 모니터링 기본 구조 
+CAdvisor 컨테이너에 관련된 모니터링 데이터를 확인할 수 있는 모니터링 도구 
+- 웹 UI에서는 단기간의 매트릭만 제공
+
+프로메테우스와 연동 
+1. CAdvisor /meterics 경로로 컨테이너 매트릭을 요청 
+2. 프로메테우스 형식의 시계열 매트릭을 반환 
+3. CAdvisor로부 터 수집된 매트릭을 저장 
+
+/metrics 경로를 외부에 노출시켜 데이터를 수집할 수 있도록 인터페이스를 제공하는 서버를 일반적으로 exporter 라고 함 
+대부분의 오픈소스에서는 매트릭을 반환하기 위한 엔드포인트 경로로 /metrics를 기준으로 함 
+
+# 모니터링 매트릭의 분류 
+* 인프라 수준의 매트릭 : 호스트 레벨에서의 매트릭을 의미 - 호스트에서 사용중인 파일 디스크립터의 개수, 디스크 사용량, 호스트  NIC  패킷 전송량 등 (node-pxporter 라는 도구가 제공하는 매트릭 수준)
+* 컨테이너 수준의 매트릭 : 컨테이너 레벨에서의 매트릭을 의미 - 컨테이너별 CPU와 메모리 사용량, 프로세스상태, 리소스 할당량, 파드의 상태 등 (CAdvisor가 제공하는 매트릭 수준)
+* 애플리케이션 수준의 매트릭 : 애플리케이션 레벨에서 정의하는 모든 매트릭을 의미 - 서버 플레임워크에서 제공하는 모니터링 데이타등 
+
+모니터링 시스템을 구축한 뒤 다루게 될 데이터는 대부분 인프라 또는 컨테이너 수준의 모니터링 데이터 
+CAdvisor가 제공하는 컨테이너 수준의 모니터링에 속하지만 인프라 수준의 모니터링 데이터도 일부 제공 
+인프라 수준에서의 매트릭을 제공하는 node-exporter 라는 도구 
+애플리케이션 수준에서의 매트릭을 제공하는 프레임워크 또는 exporter 라이브러리도 있음 
+
+# 쿠버네티스 모니터링 기초 
+
+* metrics-server
+쿠버네티스에서 자체적으로 모니터링 기능을 제공하지는 않지만 매트릭을 수집해 사용할 수 있도록 몇 가지 애드온을 제공 
+그 중 가장 기초적인 것은 컨테이너와 인프라 레벨에서의 매트릭을 수집하는 metrics-server 라는 도구 
+metrics-server 를 설치하면 파드의 오토스케일링, 사용중인 리소스 확인 등 여러 기능을 추가적으로 사용할 수 있음으로 가능하다면 설치 할 것을 권장 
+
+kubectl top pod 
+쿠버네티스는 여러 개의 노드로 구성돼 있기 때문에 쉡게 매트릭을 확인할 수는 없음 
+클러스터 내부의 매트릭을 모아서 제공하는 별도의 무어인가가 필요  metrics-server 가 바로 그역활을 담당 
+
+
+# metrics-server 설치 
+1, metrics-serve 설치에 필요한 YAML 파일 공식 깃허브 저장소에서 제공 
+wget https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.6.1/components.yaml
+
+2, 다운로드 한 파일에서 args 항목에 - --kubelet-insecure-tls 추가 
+containers:
+  - args:
+    - --cert-dir=/tmp
+    - --secure-port=4443
+    - --kubelet-insecure-tls
+
+3. kubectl apply -f components.yaml
+4. 설치확인 
+kubectl get po -n kube-system | grep metrics-server
+kubectl top po -n kube-system
+kubectl top no 
+
+# metrics-server 동작 원리 : APIServices 리소스 
+
+
+
 
 
 
