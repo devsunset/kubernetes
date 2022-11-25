@@ -2525,6 +2525,14 @@ spec:
 ResouceQuota에서 네임스페이스의 Limits, Requests를 설정하면 기본적으로 BestEffor  클래스의 파드 생성이 거부 되지만
 LimitRange를 사용하면 파드의 컨테이너에 일괄적으로 기본 자원 할당량을 설정할 수 있음 
 
+# ResouceQuota, LimitRange위 원리 : Adminssion Controller 
+Adminssion Controller - 사용자의 API 요청이 적절한지 검증하고 , 필요에 따라 API 요청을 변형하는 단계 
+ServiceAccount, ResouceQuota, LimitRange 어드미션 컨트롤러의 한 종류 
+쿠버네티스에는 총 두 단계의 어드미션 컨트롤러 존재 
+API 요청을 검사하는 것을 검증 (Validating) 단계 , API 요청을 적절히 수정하는 것을 변형(Mutating) 단계 라고 함 
+- 필요하다면  어드미션 컨트롤러를 직접 구현해 쿠버네티스에 등록 가능 
+
+
 
 
 
