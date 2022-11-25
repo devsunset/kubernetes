@@ -2271,6 +2271,58 @@ requests는 컨테이너가 보장받아야 하는 최소한의 자원을 뜻하
 파드를 할당할 때 사용되는 자원 할당 기준은 Limits가 아닌 requests
 노드에 할당된 파드의 Limits값의 합은 노드의 물리 자원의 크기를 초과할 수도 있음 
 
+# CPU 자원 사용량의 제한 원리 
+CPU를 m(밀리코어) 단위로 제한 1개의 CPU는 1000m에 해당 
+
+# QoS 클래스와 메모리 자원 사용량 제한 원리 
+파드의 컨테이너는 최대 Limits만큼의 자원을 사용 할수 있지만, 최소한 Requests만큼의 자원을 사용할 수 있도록 보장 
+Requests보다 더 많은 자원을 사용하는거를 오버커밋이라 함 
+Request를 넘어 자원을 사용하다 다른 컨테이너와 자원 사용 충돌이 발생 하면 CPU 스로틀과 괕은 원리에 의해 자원 사용이 실패 할 수 있음
+CPU 는  일시적으로 컨테이너 내부의 프로세스들이 스로틀이 걸릴 뿐 컨테이너 자체에 큰 문제는 발생하지 않음
+CPU는 압축 가능 자원 (compressible)
+메모리는 압축 불가능한 자원 (Incompressible)
+메모리 사용량에 있어서 경합이 발생하면 문제가 심각함 
+- 쿠버네티스는 이러한 경우 가용 메모리 확보하기 위해 우선 순위(Limits와 Requests 값에 따라 내부적으로 우선 순위 계산) 가 낮은 파드 또는 프로세스를 강제 종료 하게 설계됨  (Eviction)
+  쿠버네티스는 파드의 우선순위를 구분하기 위해 3가지 종류의 QoS(Quality Of Service) 클래스를 명시적으로 파드에 설정 
+
+# 쿠버네티스에서의 메모리 부족과 OOM (Out Of Memory)
+쿠버네티스 노드에는 노드의 이상 상태 정보를 제공하는 Condition 라는 값이 존재 (MemoryPressure, DiskPressure등)
+kubectl describe nodes 명령어로 확인 가능 
+kubectl describe nodes | grep -A9 Conditions
+메모리가 부족하지 않은 경우 MemoryPressure Status 값 False  부족한 경우 True (기본적으로 가용 메모리가 100Mi 이하일때 발생하도록 kubectl에 설정되 있음)
+메모리 부족이 발생하면 해당 노드에서 실행 중이던 모든 파드의 우선 순위를 매긴 다음 가장 우선 순위가 낮은 파드를 다른 노드로 퇴거(Evict) 처리 
+MemoryPressure True이면 더 이상 파드 할당 하지 않음 
+MemoryPressure 와 같은 이상 상태를 감지하기 위한 임계치를  Hard Eviction Threshold라고 함 kubectl 실행 옵션에서 설정 값 변경 가능 
+
+ # 리눅스의 OOM(Out of Memory) Killer - 리눅스 시스템에서 운순순위가 낮는 프로세스 종료 하는 처리 
+ OOM 우선 순위 점수에는 oom_score_adj, oom_score 존재 OOM  Killer는 oom_score의 값에 따라 종료할 프로세스 선정
+ 프로세스가 메모리를 얼마나 더 많이 사용하고 있는 지에 따라 프로세스의 최종 oom_score가 갱신 
+ ps aux | grep kubelet 출력된 내용중  PID  값 확인 후 아래 명령어로 확인 kubelet는 -999로 메모리 부족하다고 해서 강제 종료 되지 않음 
+ cat /proc/PID값/oom_score_adj 
+
+# Qos 클래스의 종류 
+ BestEffort, Burstable, Guraranteed 
+
+1. Guaranteed : 컨테이너에 설정된 Limits와 Requests 값이 완전히 동일 할때 부여되는 클래스 
+kubectl describe pod resource-limit-pod | grep QoS
+QoS Class:  Guaranteed
+이전 생성한 파드는 Guaranteed로 설정 되어 있음 
+limits 만 명시했는데도 Guaranteed로 분류 됨 - Requests 없이 Limits만 정의 하면 Requests 값 또한 Limits와 동일하게 설정 되기 때문 
+Guaranteed를 명시적으로 생성하고 싶다면 YAML 파일에서 Limits , Requests 값을 동일하게 설정 
+자원의 오버커밋을 허용하지 않기 때문에 할당 받은 자원을 안정적으로 보장(Guaranteed)
+Guaranteed  클래스 파드 내부에서 실행 되는 프로세스들은 모두 기본 OOM점수가 -997로 설정됨 
+파드 내에 컨테이너가 여러 개 존재 한다면 모든 컨테이너의 Requests와 Limits의 값이 완전히 같아야만 파드가 Guaranteed로 분류됨 
+
+2. BestEffort : Requests, Limits를 아예 설정하지 않은 파드에 설정되는 클래스 
+ YAML 파일에서 resources 항목을 아예 사용하지 않으면 자동으로 BestEffort 클래스로 분류 
+ Limits 값을 설정하지 않기 때문에 노드에 유휴 자원이 있다면 제한 없이 모든 자원을 사용 
+ Requests 또한 설정하지 않았기 때문에 사용을 보장받을 수 있는 자원이 존재 하지 않음 
+상황에 따라 노드에 존재하는 모든 자원을 사용할 수도 있지만 반대로 자원을 전혀 사용 하지 못할 수도 있음 
+
+3. Burstable :  Requests와 Limits가 설정돼 있지만 Limits값이 Requests보다 큰 파드를 의미 
+Guraranteed, BestEffort에 속하지 않는 모든 파드는 Burstable로 분류된다고 생각하면 됨 
+
+
 
 
 ########################################################
