@@ -2896,6 +2896,27 @@ Toleration에서 operator의 값은 Equal 외에도 Exists 사용 할 수 있음
     effect : NoExecute 
     operator: Exists
 
+# NoExecute 와 tolerationSeconds
+NoExecute는 파드를 해당 노드에 스케줄링하지 않을 뿐만 아니라 해당 노드에서 아예 파드를 실행 할 수 없도록 설정 
+NoSchedule은 노드에 설정하더라도 기존에 실행 중이던 파드는 정상 동작 하는 반면 NoExecute는 해당 노드에서 실행 중인 파드를 종료 시킴  NoExecute에 대한 Toleration이 설정되 있으면 종료 안함 
+단 파드가 디플로이먼트나 레플리카셋 등과 같은 리소스로부터 생성됐다면 NoExecute에 의해 파드가 종료됐더라도 파드는 다른 노드로 옮겨가는 퇴거(Eviction) 발생 
+파드를 생성하면 쿠버네티스는 자동으로 NoExecute에 대한 Toleration을 추가 함 
+
+  쿠버네티스는 특정 문제가 발생한 노드에 대해서는 자동으로 Taint를 추가 - (NotReady, Unreachable, memory-pressure, disk-pressure 등)                
+  특히나 NotReady, Unreachable는 노드 자체에 장애가 생긴 경우일 수 있기 때문에 쿠버네티스는 노드에 아래의 Taint를 추가 
+  node.kubenetes.io/not-ready, node.kubenetes.io/unreachable  노드가 준비되지 않았거나 네트워크 통신이 불가능한 상태일 때를 위한 Toleration
+  for 300s 값은 not-ready나 unreachable 상태의 Taint가 발생하더라도 300초 동안은 해당 Taint를 용인 하겠다는 뜻 
+  300초 이내에 노드가 정상 상태로 돌와와 Taint가 삭제되지 않으면 파드는 다른 노드로 옮겨 가게 됨 
+  즉 장애가 생겨도 해당 노드에서 실행 중이던 파드가 즉시 다른 노드로 옮겨가는 것은 아니며 기본적으로 300초 후에 옮겨가게 됨 
+  이러한 옵션을 tolerationSeconds 라고 함 - 파드가 실행 중인 노드에 Taint가 추가됐을 때 해당 Taint 를 용인할 수 있는 최대 시간을 의미 
+
+kubectl describe pod <파드이름> 명령어로 확인할 수 있음
+Tolerations :  node.kubenetes.io/not-ready:NoExecute for 300s
+                      node.kubernetes.io/unreachable:NoExecute for 300s
+
+# 
+
+   
 
 ########################################################
 ##  커스텀 리소스와 컨트롤러 
