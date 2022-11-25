@@ -2322,6 +2322,211 @@ Guaranteed  클래스 파드 내부에서 실행 되는 프로세스들은 모�
 3. Burstable :  Requests와 Limits가 설정돼 있지만 Limits값이 Requests보다 큰 파드를 의미 
 Guraranteed, BestEffort에 속하지 않는 모든 파드는 Burstable로 분류된다고 생각하면 됨 
 
+# QoS 클래스와 메모리 부족 
+ Kubelet 이 메모리가 부족한 상황을 감지하면 우선 순위가 가장 낮은 파드를 종료한 뒷 다른 노드로 퇴거(Evict)를 수행
+ 메모리 사용량이 갑작스럽게 높아지면 리눅스의 OOM Killer는 OOM 점수가 가장 낮은 컨테이너의 프로세스를 강제로 종료 할 수도 있음 
+ 파드가 퇴거 되면 단순히 다른 노드에서 파드가 다시 생성 OOM Killer에 의해 파드 컨테이너의 프로세스가 종료되면 해당 컨테이너는 
+ 파드의 재시작 정책(restartPolicy)에 의해 다시 시작 
+ OOM Killer는 메모리를 많이 사용하고 있는 프로세스를 강제로 종료하는 것이지 컨테이너나 파드를 종료 시키는 것은 아님 
+
+ 파드의 우선순위는 Guaranteed가 가장 높으며 그 뒤로 Burstable, BestEffort 순 
+우선 순위는 항상 절대적인 것은 아님 - Burstable, BestEffort 클래스의 파드가 현재 메모리를 얼마나 사용하고 있는지에 따라 우선순위가 역전 될수 있음
+파드가 메모리를 많이 사용하면 사용할수록 우선순위가 낮아짐 
+
+# 자원 오버커밋의 필요성 
+오버커밋이 쿠버네티스의 기능이라고 해서 반드시 사용해야 하는 것은 아님 
+
+# ResouceQuota & LimitRange
+여러 개발팀 쿠버네티스 사용시 가장 이상적인 방법은 개발팀마다 쿠버네티스 클러스터를 하나씩 제공 - 관리 힘듬, 클러스터 프로지저닝을 위한 비용 증가 
+대안으로 네임스페이스를 개발팀마다 생성 개발팀이 해당 네임스페이스에서만 쿠버네티스 API 사용할 수 있도록 롤, 롤 바인딩, 적절한  RBAC를 설정 운영
+네임스페이스에서 할당할 수 있는 자원의 최대 한도 또는 범위를 설정할 필요 발생 
+ResourceQuota를 이용해 네임스페이스의 자원 사용량을 제한 LimitRange로 자원 할당의 기본 값이나 범위를 설정 
+
+# ResouceQuota로 자원 사용량 제한 
+네임스페이스의 자원 사용량을 제한할 수 있는 쿠버네티스 오브젝트 
+네임스페이스에서 할당할 수 있는 자원(CPU, 메모리, 퍼시스턴트 볼륨 클레임의 크기, 컨테이너 내부의 임시 스토리지)의 총합을 제한
+네임스페이스에서 생성할 수 잇는 리소스(서비스, 디플로이먼트 등)의 개수를 제한 
+네임스페이스에 종속되는 오브젝트이기 때문에 네임스페이스별로  ResouceQuota 리소스를 생성 해야 함 
+kubectl get resourcequota or quota
+
+* resouce-quota.yaml 
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: resource-quota-example
+  namespace: default
+spec:
+  hard:
+    requests.cpu: "1000m"
+    requests.memory: "500Mi"
+    limits.cpu: "1500m"
+    limits.memory: "1000Mi"
+
+Requests와 Limits를 함께 제한할 필요는 없음 , CPU 메모리를 하나의 ResouceQuota 에서 제한할 필요도 없음 필요에 따라 설정 하면 됨 
+default 네임스페이스에서 사용할 수 있는 총 자원의 할당량 제한 , 단일 파드의 자원 할당량을 제한 한 것이 아님 
+
+kubectl apply -f resouce-quota.yaml
+kubectl describe quota
+
+새롭게 생성하는 파드가 한계치보다 많은 자원을 사용하려고 하면 파드 생성하는 API 요청은 실패
+ResouceQuota를 생성하기 이전에 존재하고 있던 파드들이 이미 자원을 한계치보다 많이 사용하고 있다고 해서 기존의 파드가 종료 되지는 않음 
+
+Test 
+메모리를 과도하게 사용하는 파드 생성
+kubectl run memory-over-pod --image=nginx --generator=run-pod/v1 --requests='cpu=200m, memory=300Mi' --limits='cpu=200m,memory=3000Mi'
+실행시 에러 발생 
+
+deployment yaml 을 이용해 생성 
+* deployment-over-memory.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-over-memory
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        resources:
+          limits:
+            memory: "3000Mi"
+            cpu: "1000m"
+          requests:
+            memory: "128Mi"
+            cpu: "500m"
+
+kubectl apply -f deployment-over-memory.yaml
+실행하면 에러 없이 정상적으로 생성  하지만 파드의 목록을 확인해 보면 해당 디플로이먼트로 부터 생성된 파드가 존재 하지 않음 
+kubectl get pods | grep deployment-over-memory 
+
+파드를 생성하는 주체는 디플로이먼트가 아니라 레프리카셋 - 디플로이먼트 리소스가 직접 파드를 생성하지는 않기 때문 
+에러 로그는 레프리카 셋에 남아 있음 
+kubectl get replicasets
+
+레프리카 셋은 지속해서 라벨 셀렉터에 해당하는 파들르 생성하려고 시도 하기 때문에 ResouceQuota 정보가 업데이트 되거나 가용 자원이 발생하면 파드 정상 생성 
+- 계속 해서 빠른 속도로 파드를 생성하려고 시도하지는 않음  일반적으로 지수 함수의 간격을 두고 동일한 동작을 다시 시도 
+10초 , 20초, 40초, 80초, 160초 ... 와 같은 주기로 파드 생성을 다시 시도 
+
+# ResouceQuota 로 리소스 개수 제한하기 
+아래의 쿠버네티스 오브젝트의 개수를 제한할 수 있음
+* 디플로이먼트 , 파드, 서비스, 시크릿, 컨피그맵, 퍼시스턴트 볼륨 클레임 등의 개수 
+* NodePort 타입의 서비스 개수, LoadBalancer 타입의 서비스 개수 
+* QoS 클래스 중에서 BestEffort 클래스에 속하는 파드의 개수 
+
+파드 서비스이 최대 개수를 제한 하려면 YAML 파일에 count/pod  와 같은 형식으로 정의 
+제한 예시 
+spec:
+  hard:
+    count/resourcequota:3
+    count/secrets: 5
+    count/configmaps: 5
+    count/persistentvolumeclaims: 2
+    count/services.nodeports: 3
+    count/services.loadbalancers: 1
+    count/deployment.apps: 0 
+
+* quota-limit-pod-svc.yaml 
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: resource-quota-example
+  namespace: default
+spec:
+  hard:
+    requests.cpu: "1000m"
+    requests.memory: "500Mi"
+    limits.cpu: "1500m"
+    limits.memory: "1000Mi"
+    count/pods: 3
+    count/services: 5
+
+# ResourceQuota로 BestEffort 클래스의 파드 개수 제한하기 
+* quota-limit-besteffort.yaml 
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: besteffort-quota
+  namespace: default
+spec:
+  hard:
+    count/pods: 1
+  scopes:
+    - BestEffort
+
+ResouceQuota에 limits,cpu나 limits.memory 등을 이용해 네임스페이스에서 사용 가능한 자원의 합을 설정했다면 
+파드를 생성할 때 반드시 해당 함목을 함께 정의해 주어야 함 
+
+# LimitRange 로 자원 사용량 제한 
+특정 네임스페이스에서 할당되는 자원의 범위 또는 기본값을 지정할 수 있는 쿠버네티스 오브젝트 
+* 파드의 컨테이너에 CPU나 메모리 할당량이 설정돼  읺지 않은 경우 컨테이너에 자동으로 기본 Requests , Limits 값을 설정할 수 있음 
+* 파드 또는 컨테이너의 CPU, 메모리, 퍼시스턴트 볼륨 클레임 스토리지 크기의 최소값/최대값을 설정 
+네임스페이스에 종속되어 네임스페이스별로 적용할 수 있는 기능 
+kubectl get limitranges or limits # 기본적으로 어떠한 LimitRange도 생성돼 있지 않음 
+
+* limitrange-example.yaml 
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: mem-limit-range
+spec:
+  limits:
+  - default:                # 1. 자동으로 설정될 기본 Limit 값
+      memory: 256Mi
+      cpu: 200m
+    defaultRequest:        # 2. 자동으로 설정될 기본 Request 값
+      memory: 128Mi
+      cpu: 100m
+    max:                   # 3. 자원 할당량의 최대값
+      memory: 1Gi
+      cpu: 1000m
+    min:                   # 4. 자원 할당량의 최소값
+      memory: 16Mi
+      cpu: 50m
+    type: Container        # 5. 각 컨테이너에 대해서 적용
+
+
+LimitRange에서 maxLimitRequestRation 항목을 사용하면 파드의 컨테이너에서 오버커밋되는 자원에 대한 비율을 제한 할 수 있음 
+오버커밋을 얼마나 사용할 수 있는지 제어할 수 있을 뿐 아니라 이 값을 1로 설정함으로써 반드시 Guaranteed 클래스의 파드만을 생성하도록 강제하는 용도로 사용 가능 
+* limitrange-ratio.yaml 
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: limitrange-ratio
+spec:
+  limits:
+  - maxLimitRequestRatio:
+      memory: 1.5
+      cpu: 1
+    type: Container
+
+
+파드 단위로 자원 사용량의 범위를 제한 하고 싶은 경우 
+* limitrange-example-pod.yaml 
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: pod-limit-range
+spec:
+  limits:
+  - max:
+      memory: 1Gi
+    min:
+      memory: 200Mi
+    type: Pod
+
+ResouceQuota에서 네임스페이스의 Limits, Requests를 설정하면 기본적으로 BestEffor  클래스의 파드 생성이 거부 되지만
+LimitRange를 사용하면 파드의 컨테이너에 일괄적으로 기본 자원 할당량을 설정할 수 있음 
+
+
+
 
 
 
@@ -2333,6 +2538,9 @@ Guraranteed, BestEffort에 속하지 않는 모든 파드는 Burstable로 분류
 
 ########################################################
 ##  쿠버네티스 모니터링 
+
+
+
 
 ########################################################
 ##  유용한 강좌
