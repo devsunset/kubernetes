@@ -3490,9 +3490,100 @@ spec:
 
 ########################################################
 ##  커스텀 리소스와 컨트롤러 
+직접 리소스의 종류를 정의해 사용 가능 이를 커스텀 리소스(Custom Resource) 라고 함 
+
+# 쿠버네티스 컨트롤러의 개념과 동작 방식 
+명령형 (Imperative) vs. 선언형(Declarative)
+docker run 처럼 특정 명령을 처리하는 주체와 통신해 그 작업을 수행하고 그 결과 값을 돌려 받는 방식을 쿠버네티스에서는 명령형 (Imperative)  이라고 함 
+쿠버네티스는 이와 반대로  선언형(Declarative) 방식을 지향  kubectl apply  명령어가 선언형 방식의 대표적인 예 
+
+# 커스텀 리소스에 대한 개념 
+
+# 커스텀 리소스를 정의하기 위한 CRD(Custom Resource Definition)
+ customresourcedefinition  이라는 오브젝트를 통해 정의 
+ kubectl get crd 
+
+ * my-crd-example.yaml
+ apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: alices.k106.com  # 1. CRD의 이름
+spec:
+  group: k106.com      # 2. 커스텀 리소스의 API 그룹
+  version: v1alpha1     #    커스텀 리소스의 API 버전
+  scope: Namespaced   #    커스텀 리소스가 네임스페이스에 속하는지 여부
+  names:
+    plural: alices        # 3. 커스텀 리소스의 이름 (복수형)
+    singular: alice      #    커스텀 리소스의 이름 (단수형)
+    kind: Alice         #    YAML 파일 등에서 사용될 커스텀 리소스의 Kind
+    shortNames: ["ac"] #    커스텀 리소스 이름의 줄임말
+  validation:
+    openAPIV3Schema:    # 4. 커스텀 리소스의 데이터를 정의
+      required: ["spec"]   #   커스텀 리소스에는 반드시 "spec" 이 존재해야 함.
+      properties:         #    커스텀 리소스에 저장될 데이터 형식을 정의
+        spec:
+          required: ["myvalue"]
+          properties:
+            myvalue:
+              type: "string"
+              minimum: 1
+
+ * my-crd-example-k8s-latest.yaml 
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: alices.k106.com      # 1. CRD의 이름 - 반드시 spec.names.plural +"."+spec.group 형태 
+spec:
+  group: k106.com               # 2. 커스텀 리소스의 API 그룹
+  scope: Namespaced          #    커스텀 리소스가 네임스페이스에 속하는지 여부
+  names:
+    plural: alices            # 3. 커스텀 리소스의 이름 (복수형)
+    singular: alice          #    커스텀 리소스의 이름 (단수형)
+    kind: Alice               #    YAML 파일 등에서 사용될 커스텀 리소스의 Kind
+    shortNames: ["ac"]       #    커스텀 리소스 이름의 줄임말
+  versions:
+  - name: v1alpha1           #    커스텀 리소스의 API 버전
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:       # 4. 커스텀 리소스의 데이터를 정의
+        type: object
+        required: ["spec"]   # 커스텀 리소스에는 반드시 "spec"이 존재해야 함
+        properties:          # 커스텀 리소스에 저장될 데이터 형식을 정의
+          spec:
+            required: ["myvalue"]
+            type: object
+            properties:
+              myvalue:
+                type: "string"
+                minimum: 1
+
+kubectl apply -f my-crd-example.yaml 
+kubectl get crds 
+
+* my-cr-example.yaml 
+apiVersion: k106.com/v1alpha1
+kind: Alice
+metadata:
+  name: my-custom-resource
+spec:
+  myvalue: "This is my value"
+
+kubectl apply -f my-cr-example.yaml 
+kubectl get alices
+kubectl get ac
+kubectl describe ac my-custom-resource 
+
+# 커스텀 리소스와 컨트롤러 
+CRD로부터 커스텀 리소스를 생성했다고 하더라도 이것만으로는 큰 의미를 갖지 않음 
+커스텀 리소스 그 자체는 etcd에 저장된 단순한 데이타일 뿐  실제로 동작하고 있는 파드나 서비스는 아님 
+커스텀 리소스를 생성했ㅇㄹ 때 특정 동작을 수행하도록 정의하는 컨트롤러를 별도로 구현해야만 커스텀 리소스가 비로서 의미를 가짐 
+컨트롤러를 개발할 수 있도록 도와주는 Operator SDK 나 KubeBuilder 와 같은 다양한 프레임워크 제공됨 
 
 ########################################################
-##  pod를 사용하는 다른 오브젝트들
+##  파드를 사용하는 다른 오브젝트들
+
+
 
 ########################################################
 ##  쿠버네티스 모니터링 
