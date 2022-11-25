@@ -2209,6 +2209,70 @@ x509 인증서를 이용한 인증 방법은 한계점이 있어 실제 환경�
 ########################################################
 ##  어플리케이션 배포를 위한 고급 설정
 
+# 컨테이너와 파드의 자원 사용량 제한 : Limits
+쿠버네티스는 내부적으로 도커 컨테이너와 동일하게 cgroup 이라는 리눅스 기술을 사용하므로 파드를 생성할 때 docker  
+명령어와 동일한 원리로  CPU, 메모리 최대 사용량을 제한할 수 있음 
+* resource-limit-pod.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: resource-limit-pod
+  labels:
+    name: resource-limit-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+    resources:
+      limits:
+        memory: "256Mi"
+        cpu: "1000m"
+
+cpu: "1000m" 는 cpu 1개를 의미 
+kubectl apply -f resource-limit-pod.yaml
+kubectl get pods -o wide <node 값 확인>
+kubectl describe node <node 값>
+
+# 컨테이너와 파드의 자원 사용량 제한하기 : Requests 
+Limit는 해당 파드의 컨테이너가 최대로 사용할 수 있는 자원의 상환선
+Requests는 적어도 이만큼의 자원은 컨테이너에게 보장돼야 한다는 의미 
+쿠버네티스의 Overcommit을 가능하게 만드는 기능 
+
+ Overcommit - 한정된 자원을 효율적으로 사용하기 위한 방법으로, 사용할 수 있는 자원 보다 더 많은 양을 가상 머신이나 컨테이너에게 할당함으로써 
+ 전체 자원의 사용률(Utilization)을 높이는 방법 
+ ex)  총 1G 메모리 탑재한 서버에 컨테이너 A, B 설치 둘다 500M 메모리 할당 해 주었는데 A라는 서버가 더 많은 처리를 해서 메모리를 많이 사용하는 반면
+ B 컨테이너는 메모리 사용량이 적은 경우 컨테이너 메모리 설정 자체를 750M 처럼 물리적 메모리를 초과해서 할당 해 주는 방식 
+ 그러나 A, B 컨테이너 모두가 많은 메모리 사용하게 되면 물리적 메모리를 초과 하게 됨으로 문제 발생 이런 문제를 해결 하기 위해 
+ 적어도 어느정도만큼은 사용할 수 있다는 경계선을 지정해 주는 부분을 Requests 라고 함 (컨테이너가 최소한으로 보장받아야 하는 자원의 양을 뜻함)
+
+* resource-limit-with-request-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: resource-limit-with-request-pod
+  labels:
+    name: resource-limit-with-request-pod
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+    resources:
+      limits:
+        memory: "256Mi"
+        cpu: "1000m"
+      requests:
+        memory: "128Mi"
+        cpu: "500m"
+
+최소한 128Mi 의 메모리 사용은 보장되지만, 유휴 메모리 자원이 있다면 최대 256Mi 까지 사용 
+CPU 도 같은 원리로 최소한 0.5 CPU 만큼은 사용할 수 있지만 유휴 CPU 자원이 있따면 최대 1 CPU 사용
+
+requests는 컨테이너가 보장받아야 하는 최소한의 자원을 뜻하기 때문에 노드의 총 자원의 크기보다 더 많은 양의 requests를 할 당 할 수는 없음 
+파드를 할당할 때 사용되는 자원 할당 기준은 Limits가 아닌 requests
+노드에 할당된 파드의 Limits값의 합은 노드의 물리 자원의 크기를 초과할 수도 있음 
+
+
+
 ########################################################
 ##  커스텀 리소스와 컨트롤러 
 
